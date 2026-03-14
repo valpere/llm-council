@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,8 +28,11 @@ type ConversationMeta struct {
 	MessageCount int    `json:"message_count"`
 }
 
+var validID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
 type Store struct {
 	dataDir string
+	locks   sync.Map // map[string]*sync.Mutex — per-conversation write lock
 }
 
 func New(dataDir string) *Store {
@@ -41,7 +47,18 @@ func (s *Store) path(id string) string {
 	return filepath.Join(s.dataDir, id+".json")
 }
 
+// lockConv acquires the per-conversation mutex and returns an unlock function.
+func (s *Store) lockConv(id string) func() {
+	v, _ := s.locks.LoadOrStore(id, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 func (s *Store) Create(id string) (*Conversation, error) {
+	if !validID.MatchString(id) {
+		return nil, fmt.Errorf("invalid conversation ID")
+	}
 	if err := s.ensureDir(); err != nil {
 		return nil, err
 	}
@@ -55,6 +72,9 @@ func (s *Store) Create(id string) (*Conversation, error) {
 }
 
 func (s *Store) Get(id string) (*Conversation, error) {
+	if !validID.MatchString(id) {
+		return nil, fmt.Errorf("invalid conversation ID")
+	}
 	data, err := os.ReadFile(s.path(id))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -66,15 +86,26 @@ func (s *Store) Get(id string) (*Conversation, error) {
 	return &conv, json.Unmarshal(data, &conv)
 }
 
+// save writes atomically via a temp file + rename to avoid partial writes.
 func (s *Store) save(conv *Conversation) error {
+	if err := s.ensureDir(); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(conv, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path(conv.ID), data, 0644)
+	tmpPath := s.path(conv.ID) + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, s.path(conv.ID))
 }
 
 func (s *Store) AddMessage(id string, msg any) error {
+	unlock := s.lockConv(id)
+	defer unlock()
+
 	conv, err := s.Get(id)
 	if err != nil {
 		return err
@@ -91,6 +122,9 @@ func (s *Store) AddMessage(id string, msg any) error {
 }
 
 func (s *Store) UpdateTitle(id, title string) error {
+	unlock := s.lockConv(id)
+	defer unlock()
+
 	conv, err := s.Get(id)
 	if err != nil {
 		return err
@@ -115,12 +149,15 @@ func (s *Store) List() ([]ConversationMeta, error) {
 		if !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(s.dataDir, entry.Name()))
+		filePath := filepath.Join(s.dataDir, entry.Name())
+		data, err := os.ReadFile(filePath)
 		if err != nil {
+			log.Printf("storage: skipping %s: read error: %v", filePath, err)
 			continue
 		}
 		var conv Conversation
 		if err := json.Unmarshal(data, &conv); err != nil {
+			log.Printf("storage: skipping %s: unmarshal error: %v", filePath, err)
 			continue
 		}
 		metas = append(metas, ConversationMeta{

@@ -16,7 +16,7 @@ Responses from Stage 1 are presented to all council models anonymously. Each mod
 
 **Input:** User query + Stage 1 results
 **Process:**
-1. Assign labels: `Response A`, `Response B`, ... in random order
+1. Shuffle Stage 1 results, then assign labels `Response A`, `Response B`, ... to the shuffled order
 2. Build ranking prompt requiring strict `FINAL RANKING:` output format
 3. Query all council models concurrently with this prompt
 4. Parse rankings from each response using regex

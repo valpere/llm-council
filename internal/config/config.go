@@ -21,7 +21,15 @@ func Load() *Config {
 		"x-ai/grok-4",
 	}
 	if v := os.Getenv("COUNCIL_MODELS"); v != "" {
-		councilModels = strings.Split(v, ",")
+		var models []string
+		for _, m := range strings.Split(v, ",") {
+			if m = strings.TrimSpace(m); m != "" {
+				models = append(models, m)
+			}
+		}
+		if len(models) > 0 {
+			councilModels = models
+		}
 	}
 
 	chairmanModel := "google/gemini-3-pro-preview"

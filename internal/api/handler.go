@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"llm-council/internal/council"
@@ -102,7 +103,11 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conv, err := h.store.Get(id)
-	if err != nil || conv == nil {
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if conv == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "conversation not found"})
 		return
 	}
@@ -114,7 +119,9 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isFirst {
-		h.store.UpdateTitle(id, h.council.GenerateTitle(r.Context(), req.Content))
+		if err := h.store.UpdateTitle(id, h.council.GenerateTitle(r.Context(), req.Content)); err != nil {
+			log.Printf("sendMessage: UpdateTitle %s: %v", id, err)
+		}
 	}
 
 	result, err := h.council.RunFull(r.Context(), req.Content)
@@ -123,12 +130,16 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.store.AddMessage(id, map[string]any{
+	if err := h.store.AddMessage(id, map[string]any{
 		"role":   "assistant",
 		"stage1": result.Stage1,
 		"stage2": result.Stage2,
 		"stage3": result.Stage3,
-	})
+	}); err != nil {
+		log.Printf("sendMessage: AddMessage (assistant) %s: %v", id, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to persist response"})
+		return
+	}
 
 	writeJSON(w, http.StatusOK, result)
 }
@@ -144,7 +155,11 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conv, err := h.store.Get(id)
-	if err != nil || conv == nil {
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if conv == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "conversation not found"})
 		return
 	}
@@ -191,6 +206,10 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 		send(map[string]string{"type": "error", "message": err.Error()})
 		return
 	}
+	if len(stage1) == 0 {
+		send(map[string]string{"type": "error", "message": "All models failed to respond. Please try again."})
+		return
+	}
 	send(map[string]any{"type": "stage1_complete", "data": stage1})
 
 	// Stage 2
@@ -218,17 +237,23 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 	// Wait for title
 	if isFirst {
 		tm := <-titleCh
-		h.store.UpdateTitle(id, tm.title)
+		if err := h.store.UpdateTitle(id, tm.title); err != nil {
+			log.Printf("sendMessageStream: UpdateTitle %s: %v", id, err)
+		}
 		send(map[string]any{"type": "title_complete", "data": map[string]string{"title": tm.title}})
 	}
 
 	// Save assistant message
-	h.store.AddMessage(id, map[string]any{
+	if err := h.store.AddMessage(id, map[string]any{
 		"role":   "assistant",
 		"stage1": stage1,
 		"stage2": stage2,
 		"stage3": stage3,
-	})
+	}); err != nil {
+		log.Printf("sendMessageStream: AddMessage (assistant) %s: %v", id, err)
+		send(map[string]string{"type": "error", "message": "failed to persist conversation"})
+		return
+	}
 
 	send(map[string]string{"type": "complete"})
 }

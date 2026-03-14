@@ -1,6 +1,6 @@
-# Go Implementation Plan
+# Go Implementation Notes
 
-The original Python/FastAPI + React implementation is being rewritten in Go. The frontend remains React; only the backend changes.
+The original Python/FastAPI + React implementation has been rewritten in Go. The frontend remains React; only the backend changed.
 
 ## Package Structure
 
@@ -15,15 +15,12 @@ llm-council/
 │   ├── openrouter/
 │   │   └── client.go        # QueryModel(), QueryModelsParallel()
 │   ├── council/
-│   │   ├── council.go       # RunFullCouncil(), stage functions
+│   │   ├── council.go       # RunFull(), stage functions, CalculateAggregateRankings()
 │   │   └── types.go         # StageOneResult, StageTwoResult, etc.
 │   ├── storage/
-│   │   ├── storage.go       # Load/Save/List conversations
-│   │   └── types.go         # Conversation, Message structs
+│   │   └── storage.go       # Create/Get/AddMessage/UpdateTitle/List
 │   └── api/
-│       ├── handler.go       # HTTP handlers
-│       ├── routes.go        # Route registration
-│       └── sse.go           # Server-Sent Events helpers
+│       └── handler.go       # HTTP handlers, CORS middleware, SSE streaming
 ├── frontend/                # Unchanged React app
 ├── data/
 │   └── conversations/       # JSON conversation files
@@ -36,20 +33,17 @@ llm-council/
 
 ### Concurrency
 
-Use `errgroup` (or plain goroutines + channels) for parallel model queries:
+Parallel model queries use `sync.WaitGroup` with per-goroutine results:
 
 ```go
-// Stage 1: query all models concurrently
-results := make([]StageOneResult, len(models))
+results := make([]ModelResult, len(models))
 var wg sync.WaitGroup
 for i, model := range models {
     wg.Add(1)
     go func(i int, model string) {
         defer wg.Done()
-        resp, err := client.QueryModel(ctx, model, messages)
-        if err == nil {
-            results[i] = StageOneResult{Model: model, Response: resp}
-        }
+        resp, err := client.QueryModel(ctx, model, messages, timeout)
+        results[i] = ModelResult{Model: model, Response: resp, Err: err}
     }(i, model)
 }
 wg.Wait()
@@ -57,20 +51,20 @@ wg.Wait()
 
 ### SSE Streaming
 
-Stage completion events are sent over a `text/event-stream` response. Each event carries JSON data:
+Stage completion events are sent over a `text/event-stream` response. Each event is a single `data:` line containing a JSON object with a `type` field:
 
 ```
-event: stage1_complete
-data: {"results": [...]}
+data: {"type":"stage1_start"}
 
-event: stage2_complete
-data: {"results": [...], "labelToModel": {...}, "aggregateRankings": [...]}
+data: {"type":"stage1_complete","data":[...]}
 
-event: stage3_complete
-data: {"result": {...}}
+data: {"type":"stage2_complete","data":[...],"metadata":{"label_to_model":{...},"aggregate_rankings":[...]}}
 
-event: complete
-data: {}
+data: {"type":"stage3_complete","data":{...}}
+
+data: {"type":"title_complete","data":{"title":"..."}}
+
+data: {"type":"complete"}
 ```
 
 ### Configuration
@@ -83,20 +77,25 @@ type Config struct {
     CouncilModels    []string
     ChairmanModel    string
     DataDir          string
-    Port             int
+    Port             string   // used as ":"+Port for http.ListenAndServe
 }
 ```
 
 ### Storage
 
-Each conversation is a single JSON file at `data/conversations/{uuid}.json`. The storage layer handles read/write with file locking if needed.
+Each conversation is a single JSON file at `data/conversations/{uuid}.json`.
+
+- Writes are atomic: data is written to a `.tmp` file then renamed, preventing partial writes on crash.
+- Concurrent writes to the same conversation are serialized via a per-conversation `sync.Mutex`.
+- Conversation IDs are validated against a UUID regex before any file path is constructed, preventing directory traversal.
 
 ### Error Handling
 
-- Model query failures return `("", err)` — the caller skips the result
-- If all models fail in Stage 1, return an error to the user
-- If some models fail, continue with successful responses
+- Model query failures are logged; the caller skips failed results
+- If all models fail in Stage 1, a descriptive error response is returned to the user
+- If some models fail, the pipeline continues with successful responses
 - Title generation failure is non-fatal; falls back to "New Conversation"
+- Storage errors in the streaming path are logged (the SSE response has already started, so headers cannot be changed)
 
 ## Dependencies
 
@@ -104,11 +103,12 @@ Each conversation is a single JSON file at `data/conversations/{uuid}.json`. The
 |---------|---------|
 | `net/http` | HTTP server (stdlib) |
 | `encoding/json` | JSON encode/decode (stdlib) |
+| `sync` | WaitGroup + per-conversation Mutex (stdlib) |
+| `math/rand` | Label shuffle for Stage 2 anonymization (stdlib) |
 | `github.com/google/uuid` | Conversation ID generation |
 | `github.com/joho/godotenv` | Load `.env` file |
-| `golang.org/x/sync/errgroup` | Concurrent goroutine management |
 
-Standard library covers HTTP, JSON, and file I/O. External dependencies are minimal.
+Standard library covers HTTP, JSON, concurrency, and file I/O. External dependencies are minimal.
 
 ## CORS
 
@@ -117,11 +117,11 @@ Allow `http://localhost:5173` (Vite dev server) and `http://localhost:3000` duri
 ## Running
 
 ```bash
-go run ./cmd/server          # Development
-go build -o llm-council ./cmd/server && ./llm-council  # Production
+make dev                     # go run ./cmd/server
+make build && ./bin/llm-council  # compiled binary
 ```
 
-Frontend remains:
+Frontend:
 ```bash
 cd frontend && npm run dev
 ```

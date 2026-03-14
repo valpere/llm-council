@@ -61,7 +61,7 @@ Single-page React application (served separately during development, or as embed
 ## Data Flow
 
 1. User submits a query via the frontend
-2. Backend saves the user message and triggers `RunFullCouncil()`
+2. Backend saves the user message and triggers `RunFull()`
 3. **Stage 1**: All council models queried concurrently via OpenRouter
 4. **Stage 2**: Responses are anonymized (A/B/C/D labels), all models rank them concurrently; rankings are aggregated
 5. **Stage 3**: Chairman model receives all responses + rankings and synthesizes a final answer
@@ -77,7 +77,19 @@ Models evaluate responses labeled "Response A/B/C/D" without knowing authorship.
 Stage 1 and Stage 2 queries run concurrently using goroutines, reducing total latency from `N × model_latency` to `max(model_latency)`.
 
 ### Server-Sent Events (SSE)
-The `/message/stream` endpoint emits events as each stage completes (`stage1_complete`, `stage2_complete`, `stage3_complete`), enabling the frontend to display progressive updates rather than waiting for the full pipeline.
+The `/message/stream` endpoint emits progress as each stage completes. All events are sent as `data:` lines (standard SSE) containing a JSON object with a `type` field:
+
+```
+data: {"type":"stage1_complete","data":[...]}
+
+data: {"type":"stage2_complete","data":[...],"metadata":{...}}
+
+data: {"type":"stage3_complete","data":{...}}
+
+data: {"type":"complete"}
+```
+
+This enables the frontend to display progressive updates rather than waiting for the full pipeline.
 
 ### Graceful Degradation
 If a model query fails, the system continues with successful responses. Partial results are better than complete failure.

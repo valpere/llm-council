@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"regexp"
 	"sort"
 	"strings"
@@ -43,12 +44,20 @@ func (c *Council) Stage1CollectResponses(ctx context.Context, userQuery string) 
 }
 
 func (c *Council) Stage2CollectRankings(ctx context.Context, userQuery string, stage1Results []StageOneResult) ([]StageTwoResult, map[string]string, error) {
+	if len(stage1Results) > 26 {
+		return nil, nil, fmt.Errorf("too many responses for Stage 2: maximum 26 supported, got %d", len(stage1Results))
+	}
+
+	// Shuffle the order in which responses are labeled to prevent label-position bias.
+	order := rand.Perm(len(stage1Results))
+
 	labelToModel := make(map[string]string, len(stage1Results))
 	var responsesText strings.Builder
-	for i, result := range stage1Results {
-		label := string(rune('A' + i))
+	for labelIdx, resultIdx := range order {
+		label := string(rune('A' + labelIdx))
+		result := stage1Results[resultIdx]
 		labelToModel["Response "+label] = result.Model
-		if i > 0 {
+		if labelIdx > 0 {
 			responsesText.WriteString("\n\n")
 		}
 		fmt.Fprintf(&responsesText, "Response %s:\n%s", label, result.Response)
@@ -223,7 +232,7 @@ func parseRankingFromText(text string) []string {
 func CalculateAggregateRankings(stage2Results []StageTwoResult, labelToModel map[string]string) []AggregateRanking {
 	modelPositions := make(map[string][]int)
 	for _, r := range stage2Results {
-		for pos, label := range parseRankingFromText(r.Ranking) {
+		for pos, label := range r.ParsedRanking {
 			if model, ok := labelToModel[label]; ok {
 				modelPositions[model] = append(modelPositions[model], pos+1)
 			}
