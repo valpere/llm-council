@@ -16,7 +16,7 @@ type Config struct {
 
 // Validate returns an error if the configuration is missing required values.
 func (c *Config) Validate() error {
-	if c.OpenRouterAPIKey == "" {
+	if strings.TrimSpace(c.OpenRouterAPIKey) == "" {
 		return fmt.Errorf("OPENROUTER_API_KEY is required but not set")
 	}
 	return nil
@@ -57,7 +57,7 @@ func Load() *Config {
 	}
 
 	return &Config{
-		OpenRouterAPIKey: os.Getenv("OPENROUTER_API_KEY"),
+		OpenRouterAPIKey: strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")),
 		CouncilModels:    councilModels,
 		ChairmanModel:    chairmanModel,
 		DataDir:          dataDir,

@@ -47,7 +47,9 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down server...")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Worst-case request duration: Stage1 + Stage2 + Stage3, each 120 s → 360 s total.
+	// Allow a generous margin so in-flight council requests can complete.
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("server forced to shutdown: %v", err)
