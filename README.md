@@ -129,7 +129,7 @@ make clean      # Remove bin/
 ```
 
 > Always run `make` commands from the **project root**, not from a subdirectory.
-> The server resolves `data/conversations/` relative to the working directory.
+> The server resolves `DATA_DIR` (default: `data/conversations/`) relative to the working directory.
 
 ---
 
@@ -165,7 +165,8 @@ On any error: `data: {"type":"error","message":"..."}` — the stream then close
 
 ### Conversation storage format
 
-Each conversation is stored as a single JSON file in `data/conversations/`:
+Each conversation is stored as a single JSON file under the directory configured
+by `DATA_DIR` (default: `data/conversations/`):
 
 ```json
 {
