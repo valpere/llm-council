@@ -5,8 +5,8 @@ than asking a single AI model for an answer, LLM Council assembles a council of
 models that independently respond, anonymously review each other, and have a
 designated Chairman synthesize a final answer.
 
-The frontend (React + Vite) lives in the sibling repository
-[`llm-council-frontend`](../llm-council-frontend).
+The frontend (React + Vite) lives in the sibling repository `llm-council-frontend`
+(separate repo on GitHub).
 
 ---
 
@@ -42,7 +42,7 @@ User query
 ┌─────────────────────────────────────┐
 │ Stage 2 — Anonymized Peer Review    │
 │ Each model ranks the others'        │
-│ responses labeled A/B/C/D           │
+│ responses labeled A–Z               │
 │ (labels are shuffled to avoid bias) │
 └──────────────────┬──────────────────┘
                    │
@@ -137,7 +137,7 @@ make clean      # Remove bin/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/` | Health check — returns `{"status":"ok"}` |
+| `GET` | `/` | Health check — returns `{"status":"ok","service":"LLM Council API"}` |
 | `GET` | `/api/conversations` | List all conversations |
 | `POST` | `/api/conversations` | Create a new conversation |
 | `GET` | `/api/conversations/{id}` | Get a conversation with all messages |
@@ -214,14 +214,17 @@ to load `.env` files. No framework, no ORM, no database.
 renamed into place, so a crash mid-write never leaves a corrupt file. Concurrent
 writes to the same conversation are serialized with a per-conversation mutex.
 
-**Bias-free peer review.** Stage 2 labels (A/B/C/D) are assigned to a *shuffled*
+**Bias-free peer review.** Stage 2 labels (A–Z) are assigned to a *shuffled*
 order of Stage 1 results each request, so no model is systematically favored by
 always being "Response A". The label-to-model mapping is ephemeral — computed
 per request, returned in the API response, but never persisted.
 
 **Graceful degradation.** If one council model fails in Stage 1 or Stage 2, the
-pipeline continues with the successful responses. Only a total Stage 1 failure
-returns an error to the user.
+pipeline continues with the successful responses. On total Stage 1 failure the
+behaviour depends on the endpoint: the JSON endpoint
+(`POST /api/conversations/{id}/message`) returns HTTP 200 with an error message
+embedded in `stage3.response`, while the streaming endpoint emits a
+`{"type":"error",...}` SSE event and closes the stream.
 
 ---
 
