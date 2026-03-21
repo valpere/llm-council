@@ -18,13 +18,15 @@ type Council struct {
 	client        LLMClient
 	councilModels []string
 	chairmanModel string
+	titleModel    string
 }
 
-func New(client LLMClient, councilModels []string, chairmanModel string) *Council {
+func New(client LLMClient, councilModels []string, chairmanModel, titleModel string) *Council {
 	return &Council{
 		client:        client,
 		councilModels: councilModels,
 		chairmanModel: chairmanModel,
+		titleModel:    titleModel,
 	}
 }
 
@@ -63,36 +65,7 @@ func (c *Council) Stage2CollectRankings(ctx context.Context, userQuery string, s
 		fmt.Fprintf(&responsesText, "Response %s:\n%s", label, result.Response)
 	}
 
-	rankingPrompt := fmt.Sprintf(`You are evaluating different responses to the following question:
-
-Question: %s
-
-Here are the responses from different models (anonymized):
-
-%s
-
-Your task:
-1. First, evaluate each response individually. For each response, explain what it does well and what it does poorly.
-2. Then, at the very end of your response, provide a final ranking.
-
-IMPORTANT: Your final ranking MUST be formatted EXACTLY as follows:
-- Start with the line "FINAL RANKING:" (all caps, with colon)
-- Then list the responses from best to worst as a numbered list
-- Each line should be: number, period, space, then ONLY the response label (e.g., "1. Response A")
-- Do not add any other text or explanations in the ranking section
-
-Example of the correct format for your ENTIRE response:
-
-Response A provides good detail on X but misses Y...
-Response B is accurate but lacks depth on Z...
-Response C offers the most comprehensive answer...
-
-FINAL RANKING:
-1. Response C
-2. Response A
-3. Response B
-
-Now provide your evaluation and ranking:`, userQuery, responsesText.String())
+	rankingPrompt := fmt.Sprintf(rankingPromptTemplate, userQuery, responsesText.String())
 
 	messages := []openrouter.Message{{Role: "user", Content: rankingPrompt}}
 	modelResults := c.client.QueryModelsParallel(ctx, c.councilModels, messages, 120*time.Second)
@@ -131,23 +104,7 @@ func (c *Council) Stage3SynthesizeFinal(ctx context.Context, userQuery string, s
 		fmt.Fprintf(&stage2Text, "Model: %s\nRanking: %s", r.Model, r.Ranking)
 	}
 
-	chairmanPrompt := fmt.Sprintf(`You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
-
-Original Question: %s
-
-STAGE 1 - Individual Responses:
-%s
-
-STAGE 2 - Peer Rankings:
-%s
-
-Your task as Chairman is to synthesize all of this information into a single, comprehensive, accurate answer to the user's original question. Consider:
-- The individual responses and their insights
-- The peer rankings and what they reveal about response quality
-- Any patterns of agreement or disagreement
-
-Provide a clear, well-reasoned final answer that represents the council's collective wisdom:`,
-		userQuery, stage1Text.String(), stage2Text.String())
+	chairmanPrompt := fmt.Sprintf(chairmanPromptTemplate, userQuery, stage1Text.String(), stage2Text.String())
 
 	messages := []openrouter.Message{{Role: "user", Content: chairmanPrompt}}
 	resp, err := c.client.QueryModel(ctx, c.chairmanModel, messages, 120*time.Second)
@@ -158,15 +115,9 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 }
 
 func (c *Council) GenerateTitle(ctx context.Context, userQuery string) string {
-	prompt := fmt.Sprintf(`Generate a very short title (3-5 words maximum) that summarizes the following question.
-The title should be concise and descriptive. Do not use quotes or punctuation in the title.
-
-Question: %s
-
-Title:`, userQuery)
-
+	prompt := fmt.Sprintf(titlePromptTemplate, userQuery)
 	messages := []openrouter.Message{{Role: "user", Content: prompt}}
-	resp, err := c.client.QueryModel(ctx, "google/gemini-2.5-flash", messages, 30*time.Second)
+	resp, err := c.client.QueryModel(ctx, c.titleModel, messages, 30*time.Second)
 	if err != nil {
 		return "New Conversation"
 	}
