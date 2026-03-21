@@ -32,3 +32,11 @@ go.work.sum
 .vscode/
 
 bin/
+
+# Claude Code config — track agents, skills, plan schema; exclude local/transient files
+!.claude/
+!.claude/**
+.claude/settings.local.json
+.claude/.onlooking*.md
+.claude/**/*.lock
+.claude/agent-memory/
