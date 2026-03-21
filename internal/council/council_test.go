@@ -103,8 +103,14 @@ func TestCalculateAggregateRankings(t *testing.T) {
 		}
 		labelToModel := map[string]string{"Response A": "alpha", "Response B": "beta"}
 		got := CalculateAggregateRankings(stage2, labelToModel)
+		if len(got) != 2 {
+			t.Fatalf("expected 2 aggregate rankings, got %d", len(got))
+		}
 		if got[0].Model != "alpha" || got[0].AverageRank != 1.0 || got[0].RankingsCount != 2 {
 			t.Errorf("unexpected first entry: %+v", got[0])
+		}
+		if got[1].Model != "beta" || got[1].AverageRank != 2.0 || got[1].RankingsCount != 2 {
+			t.Errorf("unexpected second entry: %+v", got[1])
 		}
 	})
 
@@ -126,6 +132,15 @@ func TestCalculateAggregateRankings(t *testing.T) {
 			if r.RankingsCount != 2 {
 				t.Errorf("expected 2 rankings for %s, got %d", r.Model, r.RankingsCount)
 			}
+		}
+		// Verify both expected models are present (order-independent — tied average ranks).
+		expectedModels := map[string]bool{"alpha": true, "beta": true}
+		actualModels := make(map[string]bool, len(got))
+		for _, r := range got {
+			actualModels[r.Model] = true
+		}
+		if !reflect.DeepEqual(expectedModels, actualModels) {
+			t.Errorf("expected models %v, got %v", expectedModels, actualModels)
 		}
 	})
 
