@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -121,10 +122,11 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Start title generation concurrently so it doesn't block RunFull.
+	// Uses context.Background() so it completes even if the client disconnects.
 	var titleCh chan string
 	if isFirst {
 		titleCh = make(chan string, 1)
-		go func() { titleCh <- h.council.GenerateTitle(r.Context(), req.Content) }()
+		go func() { titleCh <- h.council.GenerateTitle(context.Background(), req.Content) }()
 	}
 
 	result, err := h.council.RunFull(r.Context(), req.Content)
@@ -206,12 +208,13 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start title generation concurrently with Stage 1
+	// Start title generation concurrently with Stage 1.
+	// Uses context.Background() so it completes even if the client disconnects.
 	type titleMsg struct{ title string }
 	titleCh := make(chan titleMsg, 1)
 	if isFirst {
 		go func() {
-			titleCh <- titleMsg{h.council.GenerateTitle(ctx, req.Content)}
+			titleCh <- titleMsg{h.council.GenerateTitle(context.Background(), req.Content)}
 		}()
 	}
 
