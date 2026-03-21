@@ -11,7 +11,7 @@ llm-council-backend/
 │       └── main.go          # Entry point, server startup
 ├── internal/
 │   ├── config/
-│   │   └── config.go        # Config struct, Load() and Validate() from env
+│   │   └── config.go        # Config struct, Load() from env
 │   ├── openrouter/
 │   │   └── client.go        # QueryModel(), QueryModelsParallel()
 │   ├── council/
@@ -25,8 +25,7 @@ llm-council-backend/
 │   └── conversations/       # JSON conversation files
 ├── go.mod
 ├── go.sum
-├── .env                     # Local secrets (not committed)
-└── .env.example             # Template for required env vars
+└── .env                     # Local secrets (not committed)
 ```
 
 Frontend lives in the sibling repository `llm-council-frontend`.
