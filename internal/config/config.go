@@ -10,6 +10,7 @@ type Config struct {
 	OpenRouterAPIKey string
 	CouncilModels    []string
 	ChairmanModel    string
+	TitleModel       string
 	DataDir          string
 	Port             string
 }
@@ -46,6 +47,11 @@ func Load() *Config {
 		chairmanModel = v
 	}
 
+	titleModel := "google/gemini-2.5-flash"
+	if v := os.Getenv("TITLE_MODEL"); v != "" {
+		titleModel = v
+	}
+
 	dataDir := "data/conversations"
 	if v := os.Getenv("DATA_DIR"); v != "" {
 		dataDir = v
@@ -60,6 +66,7 @@ func Load() *Config {
 		OpenRouterAPIKey: strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")),
 		CouncilModels:    councilModels,
 		ChairmanModel:    chairmanModel,
+		TitleModel:       titleModel,
 		DataDir:          dataDir,
 		Port:             port,
 	}
