@@ -37,6 +37,9 @@ type Storer interface {
 	List() ([]ConversationMeta, error)
 }
 
+// Compile-time interface satisfaction check.
+var _ Storer = (*Store)(nil)
+
 var validID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Store struct {

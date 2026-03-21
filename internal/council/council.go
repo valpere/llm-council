@@ -15,12 +15,12 @@ import (
 )
 
 type Council struct {
-	client        *openrouter.Client
+	client        LLMClient
 	councilModels []string
 	chairmanModel string
 }
 
-func New(client *openrouter.Client, councilModels []string, chairmanModel string) *Council {
+func New(client LLMClient, councilModels []string, chairmanModel string) *Council {
 	return &Council{
 		client:        client,
 		councilModels: councilModels,
