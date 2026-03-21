@@ -13,11 +13,11 @@ import (
 )
 
 type Handler struct {
-	council *council.Council
-	store   *storage.Store
+	council council.Runner
+	store   storage.Storer
 }
 
-func New(c *council.Council, s *storage.Store) *Handler {
+func New(c council.Runner, s storage.Storer) *Handler {
 	return &Handler{council: c, store: s}
 }
 
@@ -235,7 +235,7 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 		send(map[string]string{"type": "error", "message": err.Error()})
 		return
 	}
-	aggregateRankings := council.CalculateAggregateRankings(stage2, labelToModel)
+	aggregateRankings := h.council.CalculateAggregateRankings(stage2, labelToModel)
 	send(map[string]any{
 		"type": "stage2_complete",
 		"data": stage2,

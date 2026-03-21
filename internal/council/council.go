@@ -211,8 +211,13 @@ func (c *Council) RunFull(ctx context.Context, userQuery string) (Result, error)
 	}, nil
 }
 
+// CalculateAggregateRankings implements Runner, delegating to the package-level function.
+func (c *Council) CalculateAggregateRankings(stage2 []StageTwoResult, labelToModel map[string]string) []AggregateRanking {
+	return CalculateAggregateRankings(stage2, labelToModel)
+}
+
 var (
-	reNumbered    = regexp.MustCompile(`\d+\.\s*Response [A-Z]`)
+	reNumbered      = regexp.MustCompile(`\d+\.\s*Response [A-Z]`)
 	reResponseLabel = regexp.MustCompile(`Response [A-Z]`)
 )
 

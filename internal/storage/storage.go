@@ -28,6 +28,15 @@ type ConversationMeta struct {
 	MessageCount int    `json:"message_count"`
 }
 
+// Storer defines the conversation storage operations used by the API handler.
+type Storer interface {
+	Create(id string) (*Conversation, error)
+	Get(id string) (*Conversation, error)
+	AddMessage(id string, msg any) error
+	UpdateTitle(id, title string) error
+	List() ([]ConversationMeta, error)
+}
+
 var validID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Store struct {
