@@ -13,24 +13,24 @@ See `docs/` for full documentation:
 
 ## Stack
 
-- **Backend:** Go (replacing original Python/FastAPI)
-- **Frontend:** React + Vite (unchanged)
+- **Backend:** Go — this repository (`llm-council-backend`)
+- **Frontend:** React + Vite — separate repository at `../llm-council-frontend`
 - **LLM Gateway:** OpenRouter API
 - **Storage:** JSON files in `data/conversations/`
 
 ## Development
 
 ```bash
-# Backend
+# Backend (this repo)
 go run ./cmd/server
 
-# Frontend
-cd frontend && npm run dev
+# Frontend (separate repo)
+cd ../llm-council-frontend && npm run dev
 ```
 
 ## Notes
 
-- Run backend from project root (not from `cmd/server/`)
+- Run backend from repo root (not from `cmd/server/`)
 - API key in `.env`: `OPENROUTER_API_KEY=sk-or-v1-...`
 - Backend port: 8001 (frontend dev proxy points to this)
 - Stage 2 `labelToModel` mapping is ephemeral — not persisted, only returned in API response

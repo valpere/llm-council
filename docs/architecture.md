@@ -47,7 +47,7 @@ User Query
 
 ### Frontend
 
-Single-page React application (served separately during development, or as embedded static files in production).
+Single-page React + Vite application in the separate `llm-council-frontend` repository (`../llm-council-frontend`).
 
 | Component | Responsibility |
 |-----------|---------------|

@@ -1,11 +1,11 @@
 # Go Implementation Notes
 
-The original Python/FastAPI + React implementation has been rewritten in Go. The frontend remains React; only the backend changed.
+The original Python/FastAPI backend has been rewritten in Go. The frontend (React + Vite) is maintained separately in the `llm-council-frontend` repository.
 
 ## Package Structure
 
 ```
-llm-council/
+llm-council-backend/
 ├── cmd/
 │   └── server/
 │       └── main.go          # Entry point, server startup
@@ -21,13 +21,14 @@ llm-council/
 │   │   └── storage.go       # Create/Get/AddMessage/UpdateTitle/List
 │   └── api/
 │       └── handler.go       # HTTP handlers, CORS middleware, SSE streaming
-├── frontend/                # Unchanged React app
 ├── data/
 │   └── conversations/       # JSON conversation files
 ├── go.mod
 ├── go.sum
-└── .env
+└── .env                     # Local secrets (not committed)
 ```
+
+Frontend lives in the sibling repository `llm-council-frontend`.
 
 ## Key Implementation Notes
 
@@ -121,7 +122,7 @@ make dev                     # go run ./cmd/server
 make build && ./bin/llm-council  # compiled binary
 ```
 
-Frontend:
+Frontend (separate repo):
 ```bash
-cd frontend && npm run dev
+cd ../llm-council-frontend && npm run dev
 ```
