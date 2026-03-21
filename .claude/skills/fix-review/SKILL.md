@@ -1,7 +1,7 @@
 ---
 name: fix-review
 description: Multi-model PR review pipeline. Runs 3 sequential reviewer rounds (each on the delta since the previous round), then an arbiter pass that confirms, dismisses, or defers each finding, then merges. Replaces the single-round GitHub Copilot loop with a deeper review cycle. Invoke with an optional PR number (defaults to the current branch's open PR).
-type: user-invocable
+user-invocable: true
 argument-hint: "[pr-number]"
 metadata:
   version: "1.0.0"
