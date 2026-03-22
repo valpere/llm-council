@@ -70,12 +70,24 @@ func (h *Handler) healthLive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) healthReady(w http.ResponseWriter, r *http.Request) {
-	if _, err := os.Stat(h.dataDir); err != nil {
+	unavailable := func(err error) {
 		log.Printf("healthReady: data directory check failed: %v", err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"status": "not ready",
 			"error":  "data directory unavailable",
 		})
+	}
+	if err := os.MkdirAll(h.dataDir, 0700); err != nil {
+		unavailable(err)
+		return
+	}
+	info, err := os.Stat(h.dataDir)
+	if err != nil {
+		unavailable(err)
+		return
+	}
+	if !info.IsDir() {
+		unavailable(fmt.Errorf("%s is not a directory", h.dataDir))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

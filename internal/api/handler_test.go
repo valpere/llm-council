@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -174,7 +175,12 @@ func TestHealthReady_ok(t *testing.T) {
 }
 
 func TestHealthReady_unavailable(t *testing.T) {
-	h := newTestHandlerWithDataDir(newFakeStore(), &fakeCouncil{}, "/nonexistent/path/xyz")
+	// Create a file (not a dir) at the path — MkdirAll will fail because a file blocks it.
+	blockingFile := t.TempDir() + "/blocking-file"
+	if err := os.WriteFile(blockingFile, []byte{}, 0600); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	h := newTestHandlerWithDataDir(newFakeStore(), &fakeCouncil{}, blockingFile+"/subdir")
 	w := do(t, h, http.MethodGet, "/health/ready", nil)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status: got %d, want %d", w.Code, http.StatusServiceUnavailable)
