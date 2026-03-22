@@ -11,6 +11,7 @@ dev:
 
 lint:
 	go vet ./...
+	staticcheck ./...
 
 vet: lint
 
