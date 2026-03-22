@@ -48,12 +48,16 @@ Always mock external LLM calls via the `council.LLMClient` interface. Never cons
 
 ```go
 type fakeLLMClient struct {
-    response string
+    response *openrouter.Response
     err      error
 }
 
-func (f *fakeLLMClient) QueryModel(ctx context.Context, model, prompt string) (string, error) {
+func (f *fakeLLMClient) QueryModel(ctx context.Context, model string, messages []openrouter.Message, timeout time.Duration) (*openrouter.Response, error) {
     return f.response, f.err
+}
+
+func (f *fakeLLMClient) QueryModelsParallel(ctx context.Context, models []string, messages []openrouter.Message, timeout time.Duration) []openrouter.ModelResult {
+    return nil
 }
 ```
 
@@ -61,11 +65,11 @@ Mock `council.Runner` for handler tests:
 
 ```go
 type fakeCouncil struct {
-    result council.RunResult
+    result council.Result
     err    error
 }
 
-func (f *fakeCouncil) RunFull(ctx context.Context, query string) (council.RunResult, error) {
+func (f *fakeCouncil) RunFull(ctx context.Context, query string) (council.Result, error) {
     return f.result, f.err
 }
 // implement all Runner methods, returning zero values for ones not under test
@@ -80,7 +84,7 @@ Storage tests must use a real temporary directory. Never mock the filesystem.
 ```go
 func TestStoreSaveAndLoad(t *testing.T) {
     dir := t.TempDir()
-    store, err := storage.NewStore(dir)
+    store := storage.New(dir)
     // ...
 }
 ```
@@ -118,11 +122,11 @@ func TestParseRankingFromText(t *testing.T) {
 
 ## Handler Tests
 
-Use `httptest.NewRecorder()` and `httptest.NewServer()`. Construct the handler via `api.New(mockCouncil, mockStore, tmpDir, nil)`.
+Use `httptest.NewRecorder()` and `httptest.NewServer()`. Construct the handler via `api.New(...)` and call `.Routes()` to get the `http.Handler`.
 
 ```go
 func newTestHandler(c council.Runner, s storage.Storer) http.Handler {
-    return api.New(c, s, "", nil)
+    return api.New(c, s, "", nil).Routes()
 }
 ```
 
