@@ -87,7 +87,7 @@ func (c *Council) Stage2CollectRankings(ctx context.Context, userQuery string, s
 	return results, labelToModel, nil
 }
 
-func (c *Council) Stage3SynthesizeFinal(ctx context.Context, userQuery string, stage1Results []StageOneResult, stage2Results []StageTwoResult) (StageThreeResult, error) {
+func (c *Council) Stage3SynthesizeFinal(ctx context.Context, userQuery string, stage1Results []StageOneResult, stage2Results []StageTwoResult, consensusW float64) (StageThreeResult, error) {
 	var stage1Text strings.Builder
 	for i, r := range stage1Results {
 		if i > 0 {
@@ -104,7 +104,7 @@ func (c *Council) Stage3SynthesizeFinal(ctx context.Context, userQuery string, s
 		fmt.Fprintf(&stage2Text, "Model: %s\nRanking: %s", r.Model, r.Ranking)
 	}
 
-	chairmanPrompt := fmt.Sprintf(chairmanPromptTemplate, userQuery, stage1Text.String(), stage2Text.String())
+	chairmanPrompt := fmt.Sprintf(chairmanPromptTemplate, userQuery, stage1Text.String(), stage2Text.String(), formatConsensusBlock(consensusW))
 
 	messages := []openrouter.Message{{Role: "user", Content: chairmanPrompt}}
 	resp, err := c.client.QueryModel(ctx, c.chairmanModel, messages, 120*time.Second)
@@ -145,8 +145,8 @@ func (c *Council) RunFull(ctx context.Context, userQuery string) (Result, error)
 		return Result{}, err
 	}
 
-	aggregateRankings := CalculateAggregateRankings(stage2, labelToModel)
-	stage3, err := c.Stage3SynthesizeFinal(ctx, userQuery, stage1, stage2)
+	aggregateRankings, consensusW := CalculateAggregateRankings(stage2, labelToModel)
+	stage3, err := c.Stage3SynthesizeFinal(ctx, userQuery, stage1, stage2, consensusW)
 	if err != nil {
 		return Result{}, err
 	}
@@ -158,13 +158,26 @@ func (c *Council) RunFull(ctx context.Context, userQuery string) (Result, error)
 		Metadata: Metadata{
 			LabelToModel:      labelToModel,
 			AggregateRankings: aggregateRankings,
+			ConsensusW:        consensusW,
 		},
 	}, nil
 }
 
 // CalculateAggregateRankings implements Runner, delegating to the package-level function.
-func (c *Council) CalculateAggregateRankings(stage2 []StageTwoResult, labelToModel map[string]string) []AggregateRanking {
+func (c *Council) CalculateAggregateRankings(stage2 []StageTwoResult, labelToModel map[string]string) ([]AggregateRanking, float64) {
 	return CalculateAggregateRankings(stage2, labelToModel)
+}
+
+// formatConsensusBlock returns a human-readable description of Kendall's W for the chairman prompt.
+func formatConsensusBlock(w float64) string {
+	switch {
+	case w >= 0.7:
+		return fmt.Sprintf("%.2f/1.0 (strong agreement — synthesize confidently, there is a clear consensus choice)", w)
+	case w >= 0.4:
+		return fmt.Sprintf("%.2f/1.0 (moderate agreement — note the top choice but acknowledge valid alternatives)", w)
+	default:
+		return fmt.Sprintf("%.2f/1.0 (weak agreement — present multiple perspectives rather than asserting one winner)", w)
+	}
 }
 
 var (
@@ -187,7 +200,7 @@ func parseRankingFromText(text string) []string {
 	return reResponseLabel.FindAllString(text, -1)
 }
 
-func CalculateAggregateRankings(stage2Results []StageTwoResult, labelToModel map[string]string) []AggregateRanking {
+func CalculateAggregateRankings(stage2Results []StageTwoResult, labelToModel map[string]string) ([]AggregateRanking, float64) {
 	modelPositions := make(map[string][]int)
 	for _, r := range stage2Results {
 		for pos, label := range r.ParsedRanking {
@@ -214,5 +227,65 @@ func CalculateAggregateRankings(stage2Results []StageTwoResult, labelToModel map
 	sort.Slice(aggregates, func(i, j int) bool {
 		return aggregates[i].AverageRank < aggregates[j].AverageRank
 	})
-	return aggregates
+
+	return aggregates, kendallW(stage2Results, labelToModel)
+}
+
+// kendallW computes Kendall's coefficient of concordance (W) for the given rankings.
+// W = 1.0 means perfect agreement; W = 0.0 means no agreement.
+// Returns 0.0 for degenerate cases (fewer than 2 rankers or fewer than 2 items).
+func kendallW(stage2Results []StageTwoResult, labelToModel map[string]string) float64 {
+	// Collect unique models being ranked.
+	uniqueModels := make(map[string]bool, len(labelToModel))
+	for _, model := range labelToModel {
+		uniqueModels[model] = true
+	}
+	n := len(uniqueModels)
+
+	// Count rankers with non-empty parsed rankings.
+	m := 0
+	for _, r := range stage2Results {
+		if len(r.ParsedRanking) > 0 {
+			m++
+		}
+	}
+
+	if m < 2 || n < 2 {
+		return 0
+	}
+
+	// Build rank sums: for each model, sum its rank from every ranker.
+	// Missing rank (model not mentioned by a ranker) is treated as n+1 (last place).
+	rankSums := make(map[string]float64, n)
+	for _, r := range stage2Results {
+		if len(r.ParsedRanking) == 0 {
+			continue
+		}
+		rankMap := make(map[string]int, len(r.ParsedRanking))
+		for pos, label := range r.ParsedRanking {
+			if model, ok := labelToModel[label]; ok {
+				rankMap[model] = pos + 1
+			}
+		}
+		for model := range uniqueModels {
+			rank, ok := rankMap[model]
+			if !ok {
+				rank = n + 1
+			}
+			rankSums[model] += float64(rank)
+		}
+	}
+
+	// W = 12S / (m²(n³−n))
+	rBar := float64(m) * float64(n+1) / 2.0
+	var S float64
+	for _, rs := range rankSums {
+		d := rs - rBar
+		S += d * d
+	}
+	denom := float64(m*m) * (math.Pow(float64(n), 3) - float64(n))
+	if denom == 0 {
+		return 0
+	}
+	return 12.0 * S / denom
 }

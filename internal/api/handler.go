@@ -283,19 +283,20 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 		send(map[string]string{"type": "error", "message": err.Error()})
 		return
 	}
-	aggregateRankings := h.council.CalculateAggregateRankings(stage2, labelToModel)
+	aggregateRankings, consensusW := h.council.CalculateAggregateRankings(stage2, labelToModel)
 	send(map[string]any{
 		"type": "stage2_complete",
 		"data": stage2,
 		"metadata": map[string]any{
 			"label_to_model":     labelToModel,
 			"aggregate_rankings": aggregateRankings,
+			"consensus_w":        consensusW,
 		},
 	})
 
 	// Stage 3
 	send(map[string]string{"type": "stage3_start"})
-	stage3, err := h.council.Stage3SynthesizeFinal(ctx, req.Content, stage1, stage2)
+	stage3, err := h.council.Stage3SynthesizeFinal(ctx, req.Content, stage1, stage2, consensusW)
 	if err != nil {
 		send(map[string]string{"type": "error", "message": err.Error()})
 		return

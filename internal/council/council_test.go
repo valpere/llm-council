@@ -80,7 +80,7 @@ func TestCalculateAggregateRankings(t *testing.T) {
 			"Response B": "beta",
 			"Response C": "gamma",
 		}
-		got := CalculateAggregateRankings(stage2, labelToModel)
+		got, _ := CalculateAggregateRankings(stage2, labelToModel)
 		if len(got) != 3 {
 			t.Fatalf("expected 3 entries, got %d", len(got))
 		}
@@ -102,7 +102,7 @@ func TestCalculateAggregateRankings(t *testing.T) {
 			{Model: "m2", ParsedRanking: []string{"Response A", "Response B"}},
 		}
 		labelToModel := map[string]string{"Response A": "alpha", "Response B": "beta"}
-		got := CalculateAggregateRankings(stage2, labelToModel)
+		got, _ := CalculateAggregateRankings(stage2, labelToModel)
 		if len(got) != 2 {
 			t.Fatalf("expected 2 aggregate rankings, got %d", len(got))
 		}
@@ -121,7 +121,7 @@ func TestCalculateAggregateRankings(t *testing.T) {
 			{Model: "m2", ParsedRanking: []string{"Response B", "Response A"}},
 		}
 		labelToModel := map[string]string{"Response A": "alpha", "Response B": "beta"}
-		got := CalculateAggregateRankings(stage2, labelToModel)
+		got, _ := CalculateAggregateRankings(stage2, labelToModel)
 		if len(got) != 2 {
 			t.Fatalf("expected 2 entries, got %d", len(got))
 		}
@@ -149,7 +149,7 @@ func TestCalculateAggregateRankings(t *testing.T) {
 			{Model: "m1", ParsedRanking: []string{"Response Z", "Response A"}},
 		}
 		labelToModel := map[string]string{"Response A": "alpha"} // Response Z unmapped
-		got := CalculateAggregateRankings(stage2, labelToModel)
+		got, _ := CalculateAggregateRankings(stage2, labelToModel)
 		if len(got) != 1 {
 			t.Fatalf("expected 1 entry (unmapped label skipped), got %d", len(got))
 		}
@@ -160,7 +160,7 @@ func TestCalculateAggregateRankings(t *testing.T) {
 	})
 
 	t.Run("empty stage2 results returns empty slice", func(t *testing.T) {
-		got := CalculateAggregateRankings(nil, map[string]string{})
+		got, _ := CalculateAggregateRankings(nil, map[string]string{})
 		if len(got) != 0 {
 			t.Errorf("expected empty slice, got %v", got)
 		}
@@ -170,9 +170,71 @@ func TestCalculateAggregateRankings(t *testing.T) {
 		stage2 := []StageTwoResult{
 			{Model: "m1", ParsedRanking: []string{}},
 		}
-		got := CalculateAggregateRankings(stage2, map[string]string{})
+		got, _ := CalculateAggregateRankings(stage2, map[string]string{})
 		if len(got) != 0 {
 			t.Errorf("expected empty output when no rankings parsed, got %v", got)
+		}
+	})
+}
+
+func TestKendallW(t *testing.T) {
+	t.Run("perfect agreement returns 1.0", func(t *testing.T) {
+		stage2 := []StageTwoResult{
+			{Model: "m1", ParsedRanking: []string{"Response A", "Response B", "Response C"}},
+			{Model: "m2", ParsedRanking: []string{"Response A", "Response B", "Response C"}},
+			{Model: "m3", ParsedRanking: []string{"Response A", "Response B", "Response C"}},
+		}
+		labelToModel := map[string]string{
+			"Response A": "alpha",
+			"Response B": "beta",
+			"Response C": "gamma",
+		}
+		_, w := CalculateAggregateRankings(stage2, labelToModel)
+		if w != 1.0 {
+			t.Errorf("expected W=1.0 for perfect agreement, got %v", w)
+		}
+	})
+
+	t.Run("full disagreement (two rankers, two items) returns 0.0", func(t *testing.T) {
+		// Ranker 1: A first, B second. Ranker 2: B first, A second.
+		stage2 := []StageTwoResult{
+			{Model: "m1", ParsedRanking: []string{"Response A", "Response B"}},
+			{Model: "m2", ParsedRanking: []string{"Response B", "Response A"}},
+		}
+		labelToModel := map[string]string{"Response A": "alpha", "Response B": "beta"}
+		_, w := CalculateAggregateRankings(stage2, labelToModel)
+		if w != 0.0 {
+			t.Errorf("expected W=0.0 for full disagreement, got %v", w)
+		}
+	})
+
+	t.Run("single ranker returns 0.0", func(t *testing.T) {
+		stage2 := []StageTwoResult{
+			{Model: "m1", ParsedRanking: []string{"Response A", "Response B"}},
+		}
+		labelToModel := map[string]string{"Response A": "alpha", "Response B": "beta"}
+		_, w := CalculateAggregateRankings(stage2, labelToModel)
+		if w != 0.0 {
+			t.Errorf("expected W=0.0 for single ranker, got %v", w)
+		}
+	})
+
+	t.Run("single item returns 0.0", func(t *testing.T) {
+		stage2 := []StageTwoResult{
+			{Model: "m1", ParsedRanking: []string{"Response A"}},
+			{Model: "m2", ParsedRanking: []string{"Response A"}},
+		}
+		labelToModel := map[string]string{"Response A": "alpha"}
+		_, w := CalculateAggregateRankings(stage2, labelToModel)
+		if w != 0.0 {
+			t.Errorf("expected W=0.0 for single item, got %v", w)
+		}
+	})
+
+	t.Run("no rankers returns 0.0", func(t *testing.T) {
+		_, w := CalculateAggregateRankings(nil, map[string]string{"Response A": "alpha", "Response B": "beta"})
+		if w != 0.0 {
+			t.Errorf("expected W=0.0 for no rankers, got %v", w)
 		}
 	})
 }

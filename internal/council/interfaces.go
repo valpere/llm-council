@@ -19,10 +19,10 @@ type LLMClient interface {
 type Runner interface {
 	Stage1CollectResponses(ctx context.Context, query string) ([]StageOneResult, error)
 	Stage2CollectRankings(ctx context.Context, query string, stage1 []StageOneResult) ([]StageTwoResult, map[string]string, error)
-	Stage3SynthesizeFinal(ctx context.Context, query string, stage1 []StageOneResult, stage2 []StageTwoResult) (StageThreeResult, error)
+	Stage3SynthesizeFinal(ctx context.Context, query string, stage1 []StageOneResult, stage2 []StageTwoResult, consensusW float64) (StageThreeResult, error)
 	GenerateTitle(ctx context.Context, query string) string
 	RunFull(ctx context.Context, query string) (Result, error)
-	CalculateAggregateRankings(stage2 []StageTwoResult, labelToModel map[string]string) []AggregateRanking
+	CalculateAggregateRankings(stage2 []StageTwoResult, labelToModel map[string]string) ([]AggregateRanking, float64)
 }
 
 // Compile-time interface satisfaction checks.

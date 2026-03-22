@@ -25,6 +25,7 @@ type AggregateRanking struct {
 type Metadata struct {
 	LabelToModel      map[string]string  `json:"label_to_model"`
 	AggregateRankings []AggregateRanking `json:"aggregate_rankings"`
+	ConsensusW        float64            `json:"consensus_w"`
 }
 
 type Result struct {

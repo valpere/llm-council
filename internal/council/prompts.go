@@ -34,7 +34,8 @@ FINAL RANKING:
 Now provide your evaluation and ranking:`
 
 // chairmanPromptTemplate is the Stage 3 prompt sent to the chairman model.
-// Placeholders: %s = original query, %s = Stage 1 responses, %s = Stage 2 rankings.
+// Placeholders: %s = original query, %s = Stage 1 responses, %s = Stage 2 rankings,
+// %s = consensus block (Kendall's W score and interpretation).
 const chairmanPromptTemplate = `You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
 
 Original Question: %s
@@ -45,10 +46,13 @@ STAGE 1 - Individual Responses:
 STAGE 2 - Peer Rankings:
 %s
 
+CONSENSUS SCORE (Kendall's W): %s
+
 Your task as Chairman is to synthesize all of this information into a single, comprehensive, accurate answer to the user's original question. Consider:
 - The individual responses and their insights
 - The peer rankings and what they reveal about response quality
 - Any patterns of agreement or disagreement
+- The consensus score: high agreement justifies a confident synthesis; low agreement means you should present multiple perspectives
 
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:`
 

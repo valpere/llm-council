@@ -110,12 +110,12 @@ func (f *fakeCouncil) Stage2CollectRankings(_ context.Context, _ string, _ []cou
 	return nil, nil, nil
 }
 
-func (f *fakeCouncil) Stage3SynthesizeFinal(_ context.Context, _ string, _ []council.StageOneResult, _ []council.StageTwoResult) (council.StageThreeResult, error) {
+func (f *fakeCouncil) Stage3SynthesizeFinal(_ context.Context, _ string, _ []council.StageOneResult, _ []council.StageTwoResult, _ float64) (council.StageThreeResult, error) {
 	return council.StageThreeResult{}, nil
 }
 
-func (f *fakeCouncil) CalculateAggregateRankings(_ []council.StageTwoResult, _ map[string]string) []council.AggregateRanking {
-	return nil
+func (f *fakeCouncil) CalculateAggregateRankings(_ []council.StageTwoResult, _ map[string]string) ([]council.AggregateRanking, float64) {
+	return nil, 0
 }
 
 // ---- helpers -----------------------------------------------------------------
