@@ -11,6 +11,7 @@ dev:
 
 lint:
 	go vet ./...
+	go run honnef.co/go/tools/cmd/staticcheck ./...
 
 vet: lint
 
