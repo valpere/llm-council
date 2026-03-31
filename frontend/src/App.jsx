@@ -43,9 +43,9 @@ function App() {
   const handleNewConversation = async () => {
     try {
       const newConv = await api.createConversation();
-      setConversations([
+      setConversations((prev) => [
         { id: newConv.id, created_at: newConv.created_at, message_count: 0 },
-        ...conversations,
+        ...prev,
       ]);
       setCurrentConversationId(newConv.id);
     } catch (error) {
@@ -93,7 +93,9 @@ function App() {
       const updateLast = (updater) =>
         setCurrentConversation((prev) => {
           const messages = [...prev.messages];
-          updater(messages[messages.length - 1]);
+          const last = { ...messages[messages.length - 1], loading: { ...messages[messages.length - 1].loading } };
+          messages[messages.length - 1] = last;
+          updater(last);
           return { ...prev, messages };
         });
 
