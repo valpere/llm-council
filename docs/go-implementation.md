@@ -5,7 +5,7 @@ The original Python/FastAPI backend has been rewritten in Go. The frontend (Reac
 ## Package Structure
 
 ```
-llm-council-backend/
+llm-council/
 ├── cmd/
 │   └── server/
 │       └── main.go          # Entry point, config validation, graceful shutdown

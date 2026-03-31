@@ -2,7 +2,7 @@
 
 ## What this repo does
 
-`llm-council-backend` is the Go HTTP backend for LLM Council — a 3-stage multi-LLM deliberation system:
+`llm-council` is the Go HTTP backend for LLM Council — a 3-stage multi-LLM deliberation system:
 
 1. **Stage 1** — council models answer the user query in parallel
 2. **Stage 2** — each model anonymously peer-reviews and ranks the other responses (labels A/B/C/D, shuffled per request to prevent bias)
