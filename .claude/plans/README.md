@@ -149,7 +149,7 @@ After the plan is confirmed, `/plan` offers to create a GitHub issue:
 
 ```bash
 gh issue create \
-  --repo valpere/llm-council-backend \
+  --repo valpere/llm-council \
   --title "<type>(<component>): <title>" \
   --label "<comma-separated labels>" \
   --body "$(cat <<'EOF'

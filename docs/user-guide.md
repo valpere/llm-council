@@ -29,7 +29,7 @@ LLM Council is a backend API that runs a **3-stage multi-model deliberation pipe
 
 ```bash
 # Clone and enter the repo
-cd llm-council-backend
+cd llm-council
 
 # Create .env with your API key
 echo "OPENROUTER_API_KEY=sk-or-v1-..." > .env

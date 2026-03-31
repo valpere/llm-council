@@ -83,8 +83,8 @@ User query
 
 ```bash
 # 1. Clone and enter the repo
-git clone git@github.com:valpere/llm-council-backend.git
-cd llm-council-backend
+git clone git@github.com:valpere/llm-council.git
+cd llm-council
 
 # 2. Create your .env file
 cp .env.example .env
@@ -185,7 +185,7 @@ by `DATA_DIR` (default: `data/conversations/`):
 ## Project structure
 
 ```
-llm-council-backend/
+llm-council/
 ├── cmd/server/main.go            Entry point — wires config → client → council → storage → api
 ├── internal/
 │   ├── config/config.go          Config struct and Load() from environment variables

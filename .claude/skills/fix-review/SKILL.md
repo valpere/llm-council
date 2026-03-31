@@ -12,7 +12,7 @@ metadata:
 
 # /fix-review
 
-Multi-model PR review pipeline for llm-council-backend.
+Multi-model PR review pipeline for llm-council.
 
 ## Code Review Pyramid (fix in this order — base first)
 

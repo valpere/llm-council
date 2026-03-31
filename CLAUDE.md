@@ -13,7 +13,7 @@ See `docs/` for full documentation:
 
 ## Stack
 
-- **Backend:** Go — this repository (`llm-council-backend`)
+- **Backend:** Go — this repository (`llm-council`)
 - **Frontend:** React + Vite — separate repository at `../llm-council-frontend`
 - **LLM Gateway:** OpenRouter API
 - **Storage:** JSON files in `data/conversations/`
