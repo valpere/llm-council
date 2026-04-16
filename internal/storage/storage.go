@@ -1,9 +1,15 @@
 package storage
 
 import (
+	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/valpere/llm-council/internal/council"
@@ -48,18 +54,194 @@ type Storer interface {
 	SaveTitle(id, title string) error
 }
 
-// Store is the concrete JSON backend. It satisfies Storer.
-// Implementation lives in the L2.2 JSON storage backend issue.
-type Store struct{}
+// Store is the JSON file backend. One file per conversation under dataDir.
+// A store-level RWMutex serialises write operations (create/save) while
+// allowing concurrent reads.
+type Store struct {
+	dataDir string
+	logger  *slog.Logger
+	mu      sync.RWMutex
+}
 
-var errNotImplemented = errors.New("not implemented")
+// uuidRE matches a canonical UUID v4.
+var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-func (s *Store) CreateConversation() (*Conversation, error)                         { return nil, errNotImplemented }
-func (s *Store) GetConversation(id string) (*Conversation, error)                   { return nil, errNotImplemented }
-func (s *Store) ListConversations() ([]ConversationMeta, error)                     { return nil, errNotImplemented }
-func (s *Store) SaveUserMessage(id, content string) error                           { return errNotImplemented }
-func (s *Store) SaveAssistantMessage(id string, msg council.AssistantMessage) error { return errNotImplemented }
-func (s *Store) SaveTitle(id, title string) error                                   { return errNotImplemented }
+func isValidUUID(id string) bool { return uuidRE.MatchString(id) }
+
+// NewStore creates the data directory (mode 0700) if needed and returns a Store.
+// A nil logger falls back to slog.Default().
+func NewStore(dataDir string, logger *slog.Logger) (*Store, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		return nil, fmt.Errorf("create data dir: %w", err)
+	}
+	return &Store{dataDir: dataDir, logger: logger}, nil
+}
 
 // Compile-time assertion: Store implements Storer.
 var _ Storer = (*Store)(nil)
+
+func (s *Store) filePath(id string) string {
+	return filepath.Join(s.dataDir, id+".json")
+}
+
+// readConversation reads and unmarshals a conversation file.
+// Caller must hold at least s.mu.RLock().
+func (s *Store) readConversation(id string) (*Conversation, error) {
+	if !isValidUUID(id) {
+		return nil, &NotFoundError{ID: id}
+	}
+	data, err := os.ReadFile(s.filePath(id))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, &NotFoundError{ID: id}
+		}
+		return nil, fmt.Errorf("read %s: %w", id, err)
+	}
+	var c Conversation
+	if err := json.Unmarshal(data, &c); err != nil {
+		return nil, fmt.Errorf("unmarshal %s: %w", id, err)
+	}
+	return &c, nil
+}
+
+// writeConversation marshals c and atomically replaces the conversation file
+// using a tmp → rename pattern. Files are written with mode 0600.
+// Caller must hold s.mu.Lock().
+func (s *Store) writeConversation(c *Conversation) error {
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal conversation: %w", err)
+	}
+	tmp := s.filePath(c.ID) + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("write tmp %s: %w", c.ID, err)
+	}
+	if err := os.Rename(tmp, s.filePath(c.ID)); err != nil {
+		os.Remove(tmp) // best-effort cleanup
+		return fmt.Errorf("rename %s: %w", c.ID, err)
+	}
+	return nil
+}
+
+func newUUID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant bits
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
+func (s *Store) CreateConversation() (*Conversation, error) {
+	id, err := newUUID()
+	if err != nil {
+		return nil, fmt.Errorf("generate id: %w", err)
+	}
+	c := &Conversation{
+		ID:        id,
+		CreatedAt: time.Now().UTC(),
+		Title:     "New Conversation",
+		Messages:  []json.RawMessage{},
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeConversation(c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (s *Store) GetConversation(id string) (*Conversation, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.readConversation(id)
+}
+
+func (s *Store) ListConversations() ([]ConversationMeta, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entries, err := os.ReadDir(s.dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("read dir: %w", err)
+	}
+	var metas []ConversationMeta
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		id := e.Name()[:len(e.Name())-5] // strip .json
+		if !isValidUUID(id) {
+			continue // skip non-conversation files (e.g. corrupt.json planted in tests)
+		}
+		data, err := os.ReadFile(filepath.Join(s.dataDir, e.Name()))
+		if err != nil {
+			s.logger.Warn("skipping unreadable conversation file", "file", e.Name(), "error", err)
+			continue
+		}
+		var c Conversation
+		if err := json.Unmarshal(data, &c); err != nil {
+			s.logger.Warn("skipping corrupt conversation file", "file", e.Name(), "error", err)
+			continue
+		}
+		metas = append(metas, ConversationMeta{
+			ID:           id,
+			CreatedAt:    c.CreatedAt,
+			Title:        c.Title,
+			MessageCount: len(c.Messages),
+		})
+	}
+	sort.Slice(metas, func(i, j int) bool {
+		return metas[i].CreatedAt.After(metas[j].CreatedAt)
+	})
+	return metas, nil
+}
+
+func (s *Store) SaveUserMessage(id, content string) error {
+	raw, err := json.Marshal(struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}{Role: "user", Content: content})
+	if err != nil {
+		return fmt.Errorf("marshal user message: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.readConversation(id)
+	if err != nil {
+		return err
+	}
+	c.Messages = append(c.Messages, raw)
+	return s.writeConversation(c)
+}
+
+func (s *Store) SaveAssistantMessage(id string, msg council.AssistantMessage) error {
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal assistant message: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.readConversation(id)
+	if err != nil {
+		return err
+	}
+	c.Messages = append(c.Messages, raw)
+	return s.writeConversation(c)
+}
+
+func (s *Store) SaveTitle(id, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.readConversation(id)
+	if err != nil {
+		return err
+	}
+	c.Title = title
+	return s.writeConversation(c)
+}
