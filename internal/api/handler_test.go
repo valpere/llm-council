@@ -100,26 +100,7 @@ func parseSSEEventTypes(body string) []string {
 	return types
 }
 
-// parseSSEEventData finds the first SSE event with the given type and unmarshals
-// its "data" field into v. Returns false if no matching event is found.
-func parseSSEEventData(body, eventType string, v any) bool {
-	for _, line := range strings.Split(body, "\n") {
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		var env struct {
-			Type string          `json:"type"`
-			Data json.RawMessage `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(line[6:]), &env); err != nil || env.Type != eventType {
-			continue
-		}
-		return json.Unmarshal(env.Data, v) == nil
-	}
-	return false
-}
-
-// ── ListConversations ────────────────────────────────────────────────────────
+//── ListConversations ────────────────────────────────────────────────────────
 
 func TestListConversations(t *testing.T) {
 	tests := []struct {
@@ -344,16 +325,27 @@ func TestSendMessageStream(t *testing.T) {
 					t.Errorf("last event: got %v, want 'complete'", types)
 				}
 
-				// metadata must be present and populated in stage2_complete.
-				var s2 council.Stage2CompleteData
-				if !parseSSEEventData(body, "stage2_complete", &s2) {
-					t.Fatal("could not parse stage2_complete data")
-				}
-				if s2.Metadata.ConsensusW != 0.9 {
-					t.Errorf("consensus_w: got %f, want 0.9", s2.Metadata.ConsensusW)
-				}
-				if s2.Metadata.LabelToModel["Response A"] != "openai/gpt-4o" {
-					t.Errorf("label_to_model: got %v", s2.Metadata.LabelToModel)
+				// stage2_complete must have metadata as a TOP-LEVEL field per the
+				// streaming spec: { "type": "stage2_complete", "data": [...], "metadata": {...} }
+				for _, line := range strings.Split(body, "\n") {
+					if !strings.HasPrefix(line, "data: ") {
+						continue
+					}
+					var env struct {
+						Type     string               `json:"type"`
+						Data     []council.StageTwoResult `json:"data"`
+						Metadata council.Metadata     `json:"metadata"`
+					}
+					if err := json.Unmarshal([]byte(line[6:]), &env); err != nil || env.Type != "stage2_complete" {
+						continue
+					}
+					if env.Metadata.ConsensusW != 0.9 {
+						t.Errorf("consensus_w: got %f, want 0.9", env.Metadata.ConsensusW)
+					}
+					if env.Metadata.LabelToModel["Response A"] != "openai/gpt-4o" {
+						t.Errorf("label_to_model: got %v", env.Metadata.LabelToModel)
+					}
+					break
 				}
 			},
 		},
@@ -368,13 +360,25 @@ func TestSendMessageStream(t *testing.T) {
 			},
 			wantCode: http.StatusOK,
 			checkSSE: func(t *testing.T, body string) {
-				types := parseSSEEventTypes(body)
-				for _, typ := range types {
-					if typ == "error" {
-						return
+				// Error event must be present with a non-empty "message" field
+				// per the SSE spec: { "type": "error", "message": "..." }
+				for _, line := range strings.Split(body, "\n") {
+					if !strings.HasPrefix(line, "data: ") {
+						continue
 					}
+					var env struct {
+						Type    string `json:"type"`
+						Message string `json:"message"`
+					}
+					if err := json.Unmarshal([]byte(line[6:]), &env); err != nil || env.Type != "error" {
+						continue
+					}
+					if env.Message == "" {
+						t.Errorf("error event missing 'message' field, got: %s", line[6:])
+					}
+					return
 				}
-				t.Errorf("expected 'error' event for QuorumError, got events: %v", types)
+				t.Errorf("expected 'error' event for QuorumError, got:\n%s", body)
 			},
 		},
 		{

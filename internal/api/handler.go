@@ -63,6 +63,7 @@ func (h *Handler) wrap(next http.HandlerFunc) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Add("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -195,6 +196,7 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 		stage3Result  council.StageThreeResult
 	)
 
+	// sendSSE emits a standard {type, data} SSE event and flushes.
 	sendSSE := func(eventType string, data any) {
 		dataJSON, err := json.Marshal(data)
 		if err != nil {
@@ -211,31 +213,73 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
+	// sendStage2SSE emits the spec-correct stage2_complete shape:
+	// { "type": "stage2_complete", "data": [...], "metadata": {...} }
+	// metadata is a top-level field, not nested under data.
+	sendStage2SSE := func(d council.Stage2CompleteData) {
+		type stage2Payload struct {
+			Type     string                 `json:"type"`
+			Data     []council.StageTwoResult `json:"data"`
+			Metadata council.Metadata       `json:"metadata"`
+		}
+		b, err := json.Marshal(stage2Payload{
+			Type:     "stage2_complete",
+			Data:     d.Results,
+			Metadata: d.Metadata,
+		})
+		if err != nil {
+			h.logger.Error("marshal stage2 SSE payload", "error", err)
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		flusher.Flush()
+	}
+
+	// sendErrorSSE emits { "type": "error", "message": "..." } per the SSE spec.
+	sendErrorSSE := func(msg string) {
+		type errPayload struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		}
+		b, err := json.Marshal(errPayload{Type: "error", Message: msg})
+		if err != nil {
+			h.logger.Error("marshal error SSE payload", "error", err)
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		flusher.Flush()
+	}
+
 	onEvent := func(eventType string, data any) {
 		switch eventType {
 		case "stage1_complete":
 			if results, ok := data.([]council.StageOneResult); ok {
 				stage1Results = results
 			}
+			sendSSE(eventType, data)
 		case "stage2_complete":
 			if d, ok := data.(council.Stage2CompleteData); ok {
 				stage2Data = d
+				sendStage2SSE(d)
 			}
 		case "stage3_complete":
 			if result, ok := data.(council.StageThreeResult); ok {
 				stage3Result = result
 			}
+			sendSSE(eventType, data)
+		default:
+			sendSSE(eventType, data)
 		}
-		sendSSE(eventType, data)
 	}
 
 	if err := h.runner.RunFull(r.Context(), body.Message, councilType, onEvent); err != nil {
 		var qe *council.QuorumError
 		if errors.As(err, &qe) {
-			sendSSE("error", map[string]string{"error": "council quorum not met"})
+			h.logger.Warn("council quorum not met", "id", id, "got", qe.Got, "need", qe.Need)
+			sendErrorSSE("council quorum not met")
 		} else {
 			h.logger.Error("council run", "id", id, "error", err)
-			sendSSE("error", map[string]string{"error": "internal server error"})
+			sendErrorSSE("internal server error")
 		}
 		return
 	}
@@ -250,7 +294,7 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.storage.SaveAssistantMessage(id, msg); err != nil {
 		h.logger.Error("save assistant message", "id", id, "error", err)
-		sendSSE("error", map[string]string{"error": "internal server error"})
+		sendErrorSSE("internal server error")
 		return
 	}
 
@@ -275,5 +319,7 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("title generation timed out", "id", id)
 	}
 
-	sendSSE("complete", msg)
+	// Spec: { "type": "complete" } with no payload.
+	fmt.Fprintf(w, "data: {\"type\":\"complete\"}\n\n")
+	flusher.Flush()
 }
