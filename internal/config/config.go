@@ -2,7 +2,9 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 // It contains raw primitive fields only — no domain types.
 type Config struct {
 	OpenRouterAPIKey            string
+	LLMBaseURL                  string
 	DataDir                     string
 	DefaultCouncilType          string
 	Port                        string
@@ -76,8 +79,18 @@ func Load() (*Config, error) {
 		}
 	}
 
+	var llmBaseURL string
+	if raw := os.Getenv("LLM_API_BASE_URL"); raw != "" {
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return nil, fmt.Errorf("LLM_API_BASE_URL must be a valid http/https URL, got %q", raw)
+		}
+		llmBaseURL = raw
+	}
+
 	return &Config{
 		OpenRouterAPIKey:            apiKey,
+		LLMBaseURL:                  llmBaseURL,
 		DataDir:                     dataDir,
 		DefaultCouncilType:          councilType,
 		Port:                        port,

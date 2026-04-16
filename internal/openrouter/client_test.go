@@ -216,8 +216,8 @@ func TestComplete_ResponseFormatForwarded(t *testing.T) {
 
 // ── TestNewClient ─────────────────────────────────────────────────────────────
 
-func TestNewClient(t *testing.T) {
-	c := NewClient("my-key", 30*time.Second)
+func TestNewClient_DefaultURL(t *testing.T) {
+	c := NewClient("my-key", "", 30*time.Second)
 	if c.apiKey != "my-key" {
 		t.Errorf("apiKey: got %q, want %q", c.apiKey, "my-key")
 	}
@@ -226,5 +226,13 @@ func TestNewClient(t *testing.T) {
 	}
 	if c.http.Timeout != 30*time.Second {
 		t.Errorf("timeout: got %v, want 30s", c.http.Timeout)
+	}
+}
+
+func TestNewClient_CustomURL(t *testing.T) {
+	const custom = "http://localhost:11434/v1/chat/completions"
+	c := NewClient("ollama", custom, 10*time.Second)
+	if c.baseURL != custom {
+		t.Errorf("baseURL: got %q, want %q", c.baseURL, custom)
 	}
 }
