@@ -44,7 +44,7 @@ func Load() (*Config, error) {
 	}
 
 	var models []string
-	if raw := os.Getenv("DEFAULT_COUNCIL_MODELS"); raw != "" {
+	if raw := os.Getenv("COUNCIL_MODELS"); raw != "" {
 		for _, m := range strings.Split(raw, ",") {
 			if m = strings.TrimSpace(m); m != "" {
 				models = append(models, m)
@@ -52,7 +52,7 @@ func Load() (*Config, error) {
 		}
 	}
 	if len(models) == 0 {
-		slog.Warn("DEFAULT_COUNCIL_MODELS not set; using local-dev fallback models")
+		slog.Warn("COUNCIL_MODELS not set; using local-dev fallback models")
 		models = []string{
 			"openai/gpt-4o-mini",
 			"anthropic/claude-haiku-4-5",
@@ -60,9 +60,9 @@ func Load() (*Config, error) {
 		}
 	}
 
-	chairmanModel := os.Getenv("DEFAULT_COUNCIL_CHAIRMAN_MODEL")
+	chairmanModel := os.Getenv("CHAIRMAN_MODEL")
 	if chairmanModel == "" {
-		slog.Warn("DEFAULT_COUNCIL_CHAIRMAN_MODEL not set; using local-dev fallback model")
+		slog.Warn("CHAIRMAN_MODEL not set; using local-dev fallback model")
 		chairmanModel = "openai/gpt-4o-mini"
 	}
 
@@ -70,6 +70,9 @@ func Load() (*Config, error) {
 	if raw := os.Getenv("DEFAULT_COUNCIL_TEMPERATURE"); raw != "" {
 		if t, err := strconv.ParseFloat(raw, 64); err == nil {
 			temperature = t
+		} else {
+			slog.Warn("DEFAULT_COUNCIL_TEMPERATURE is invalid; using fallback value",
+				"value", raw, "error", err, "fallback", temperature)
 		}
 	}
 
