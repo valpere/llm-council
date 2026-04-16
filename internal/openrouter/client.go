@@ -34,11 +34,16 @@ type Client struct {
 	http    *http.Client
 }
 
-// NewClient creates a Client with the given API key and HTTP timeout.
-func NewClient(apiKey string, timeout time.Duration) *Client {
+// NewClient creates a Client with the given API key, base URL, and HTTP timeout.
+// baseURL overrides the default OpenRouter endpoint; pass "" to use the default.
+// Configured at runtime via the LLM_API_BASE_URL environment variable.
+func NewClient(apiKey, baseURL string, timeout time.Duration) *Client {
+	if baseURL == "" {
+		baseURL = defaultURL
+	}
 	return &Client{
 		apiKey:  apiKey,
-		baseURL: defaultURL,
+		baseURL: baseURL,
 		http:    &http.Client{Timeout: timeout},
 	}
 }
