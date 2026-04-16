@@ -5,7 +5,13 @@ function modelShortName(model) {
   return model.split('/')[1] || model;
 }
 
-export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
+function consensusLabel(w) {
+  if (w >= 0.70) return 'strong';
+  if (w >= 0.40) return 'moderate';
+  return 'weak';
+}
+
+export default function Stage2({ rankings, labelToModel, aggregateRankings, consensusW }) {
   const [activeTab, setActiveTab] = useState(0);
 
   if (!rankings || rankings.length === 0) {
@@ -15,6 +21,15 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
   return (
     <div className="stage stage2">
       <h3 className="stage-title">Stage 2: Peer Rankings</h3>
+
+      {consensusW != null && consensusW > 0 && (() => {
+        const label = consensusLabel(consensusW);
+        return (
+          <div className={`consensus-badge consensus-${label}`}>
+            Consensus: {consensusW.toFixed(2)} ({label})
+          </div>
+        );
+      })()}
 
       <h4>Individual Rankings</h4>
       <p className="stage-description">
