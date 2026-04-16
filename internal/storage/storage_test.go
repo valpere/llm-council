@@ -32,6 +32,9 @@ func TestCreateGetRoundTrip(t *testing.T) {
 	if c.ID == "" {
 		t.Fatal("expected non-empty ID")
 	}
+	if c.Title != "New Conversation" {
+		t.Errorf("Title: got %q, want %q", c.Title, "New Conversation")
+	}
 
 	got, err := s.GetConversation(c.ID)
 	if err != nil {
@@ -133,6 +136,62 @@ func TestSaveAssistantMessageRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveUserMessageRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+
+	c, err := s.CreateConversation()
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	if err := s.SaveUserMessage(c.ID, "Why is the sky blue?"); err != nil {
+		t.Fatalf("SaveUserMessage: %v", err)
+	}
+
+	got, err := s.GetConversation(c.ID)
+	if err != nil {
+		t.Fatalf("GetConversation: %v", err)
+	}
+	if len(got.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(got.Messages))
+	}
+
+	var m struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(got.Messages[0], &m); err != nil {
+		t.Fatalf("unmarshal user message: %v", err)
+	}
+	if m.Role != "user" {
+		t.Errorf("role: got %q, want %q", m.Role, "user")
+	}
+	if m.Content != "Why is the sky blue?" {
+		t.Errorf("content: got %q, want %q", m.Content, "Why is the sky blue?")
+	}
+}
+
+func TestSaveTitleRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+
+	c, err := s.CreateConversation()
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	if err := s.SaveTitle(c.ID, "Why is the sky blue?"); err != nil {
+		t.Fatalf("SaveTitle: %v", err)
+	}
+
+	got, err := s.GetConversation(c.ID)
+	if err != nil {
+		t.Fatalf("GetConversation: %v", err)
+	}
+	if got.Title != "Why is the sky blue?" {
+		t.Errorf("Title: got %q, want %q", got.Title, "Why is the sky blue?")
+	}
+}
+
 func TestMissingMetadataUnmarshalsToZero(t *testing.T) {
 	dir := t.TempDir()
 	s, err := storage.NewStore(dir, slog.Default())
@@ -158,7 +217,7 @@ func TestMissingMetadataUnmarshalsToZero(t *testing.T) {
 		Messages:  []json.RawMessage{legacyMsg},
 	}
 	data, _ := json.Marshal(lc)
-	if err := os.WriteFile(filepath.Join(dir, c.ID+".json"), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, c.ID+".json"), data, 0600); err != nil {
 		t.Fatalf("write legacy file: %v", err)
 	}
 
@@ -203,6 +262,18 @@ func TestNotFoundError(t *testing.T) {
 	}
 }
 
+func TestInvalidUUIDReturnNotFound(t *testing.T) {
+	s := newTestStore(t)
+
+	for _, id := range []string{"../etc/passwd", "not-a-uuid", "", "../../secret"} {
+		_, err := s.GetConversation(id)
+		var nfe *storage.NotFoundError
+		if !errors.As(err, &nfe) {
+			t.Errorf("id %q: expected *storage.NotFoundError, got %T: %v", id, err, err)
+		}
+	}
+}
+
 func TestCorruptFileSkippedInList(t *testing.T) {
 	dir := t.TempDir()
 	s, err := storage.NewStore(dir, slog.Default())
@@ -215,8 +286,10 @@ func TestCorruptFileSkippedInList(t *testing.T) {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 
-	// Plant a corrupt JSON file alongside the valid one.
-	if err := os.WriteFile(filepath.Join(dir, "corrupt.json"), []byte("{not valid json{{"), 0644); err != nil {
+	// Plant a corrupt file with a valid UUID name so it passes the UUID filter
+	// and exercises the JSON-parse-error path in ListConversations.
+	corruptID := "ffffffff-ffff-4fff-bfff-ffffffffffff"
+	if err := os.WriteFile(filepath.Join(dir, corruptID+".json"), []byte("{not valid json{{"), 0600); err != nil {
 		t.Fatalf("write corrupt file: %v", err)
 	}
 

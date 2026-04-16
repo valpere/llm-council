@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/valpere/llm-council/internal/council"
@@ -53,14 +55,26 @@ type Storer interface {
 }
 
 // Store is the JSON file backend. One file per conversation under dataDir.
+// A store-level RWMutex serialises write operations (create/save) while
+// allowing concurrent reads.
 type Store struct {
 	dataDir string
 	logger  *slog.Logger
+	mu      sync.RWMutex
 }
 
-// NewStore creates the data directory if needed and returns a Store.
+// uuidRE matches a canonical UUID v4.
+var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+func isValidUUID(id string) bool { return uuidRE.MatchString(id) }
+
+// NewStore creates the data directory (mode 0700) if needed and returns a Store.
+// A nil logger falls back to slog.Default().
 func NewStore(dataDir string, logger *slog.Logger) (*Store, error) {
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 	return &Store{dataDir: dataDir, logger: logger}, nil
@@ -73,7 +87,12 @@ func (s *Store) filePath(id string) string {
 	return filepath.Join(s.dataDir, id+".json")
 }
 
+// readConversation reads and unmarshals a conversation file.
+// Caller must hold at least s.mu.RLock().
 func (s *Store) readConversation(id string) (*Conversation, error) {
+	if !isValidUUID(id) {
+		return nil, &NotFoundError{ID: id}
+	}
 	data, err := os.ReadFile(s.filePath(id))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -88,13 +107,21 @@ func (s *Store) readConversation(id string) (*Conversation, error) {
 	return &c, nil
 }
 
+// writeConversation marshals c and atomically replaces the conversation file
+// using a tmp → rename pattern. Files are written with mode 0600.
+// Caller must hold s.mu.Lock().
 func (s *Store) writeConversation(c *Conversation) error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal conversation: %w", err)
 	}
-	if err := os.WriteFile(s.filePath(c.ID), data, 0644); err != nil {
-		return fmt.Errorf("write %s: %w", c.ID, err)
+	tmp := s.filePath(c.ID) + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("write tmp %s: %w", c.ID, err)
+	}
+	if err := os.Rename(tmp, s.filePath(c.ID)); err != nil {
+		os.Remove(tmp) // best-effort cleanup
+		return fmt.Errorf("rename %s: %w", c.ID, err)
 	}
 	return nil
 }
@@ -118,8 +145,11 @@ func (s *Store) CreateConversation() (*Conversation, error) {
 	c := &Conversation{
 		ID:        id,
 		CreatedAt: time.Now().UTC(),
+		Title:     "New Conversation",
 		Messages:  []json.RawMessage{},
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.writeConversation(c); err != nil {
 		return nil, err
 	}
@@ -127,10 +157,15 @@ func (s *Store) CreateConversation() (*Conversation, error) {
 }
 
 func (s *Store) GetConversation(id string) (*Conversation, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.readConversation(id)
 }
 
 func (s *Store) ListConversations() ([]ConversationMeta, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	entries, err := os.ReadDir(s.dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("read dir: %w", err)
@@ -141,6 +176,9 @@ func (s *Store) ListConversations() ([]ConversationMeta, error) {
 			continue
 		}
 		id := e.Name()[:len(e.Name())-5] // strip .json
+		if !isValidUUID(id) {
+			continue // skip non-conversation files (e.g. corrupt.json planted in tests)
+		}
 		data, err := os.ReadFile(filepath.Join(s.dataDir, e.Name()))
 		if err != nil {
 			s.logger.Warn("skipping unreadable conversation file", "file", e.Name(), "error", err)
@@ -165,10 +203,6 @@ func (s *Store) ListConversations() ([]ConversationMeta, error) {
 }
 
 func (s *Store) SaveUserMessage(id, content string) error {
-	c, err := s.readConversation(id)
-	if err != nil {
-		return err
-	}
 	raw, err := json.Marshal(struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -176,24 +210,34 @@ func (s *Store) SaveUserMessage(id, content string) error {
 	if err != nil {
 		return fmt.Errorf("marshal user message: %w", err)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.readConversation(id)
+	if err != nil {
+		return err
+	}
 	c.Messages = append(c.Messages, raw)
 	return s.writeConversation(c)
 }
 
 func (s *Store) SaveAssistantMessage(id string, msg council.AssistantMessage) error {
-	c, err := s.readConversation(id)
-	if err != nil {
-		return err
-	}
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("marshal assistant message: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.readConversation(id)
+	if err != nil {
+		return err
 	}
 	c.Messages = append(c.Messages, raw)
 	return s.writeConversation(c)
 }
 
 func (s *Store) SaveTitle(id, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	c, err := s.readConversation(id)
 	if err != nil {
 		return err
