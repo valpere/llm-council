@@ -80,10 +80,10 @@ func Load() (*Config, error) {
 	}
 
 	var llmBaseURL string
-	if raw := os.Getenv("LLM_API_BASE_URL"); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("LLM_API_BASE_URL")); raw != "" {
 		u, err := url.Parse(raw)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-			return nil, fmt.Errorf("LLM_API_BASE_URL must be a valid http/https URL, got %q", raw)
+		if err != nil || !u.IsAbs() || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Opaque != "" {
+			return nil, fmt.Errorf("LLM_API_BASE_URL must be a valid absolute http/https URL with a host, got %q", raw)
 		}
 		llmBaseURL = raw
 	}

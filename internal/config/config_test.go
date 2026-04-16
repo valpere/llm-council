@@ -20,6 +20,19 @@ func setenv(t *testing.T, key, value string) {
 	})
 }
 
+// unsetenv unsets an env var for the duration of the test and restores the
+// prior value via t.Cleanup.
+func unsetenv(t *testing.T, key string) {
+	t.Helper()
+	prev, hadPrev := os.LookupEnv(key)
+	os.Unsetenv(key)
+	t.Cleanup(func() {
+		if hadPrev {
+			os.Setenv(key, prev)
+		}
+	})
+}
+
 // baseEnv sets the minimum required environment for config.Load() to succeed.
 func baseEnv(t *testing.T) {
 	t.Helper()
@@ -30,7 +43,7 @@ func baseEnv(t *testing.T) {
 
 func TestLoad_LLMBaseURL_Unset(t *testing.T) {
 	baseEnv(t)
-	os.Unsetenv("LLM_API_BASE_URL")
+	unsetenv(t, "LLM_API_BASE_URL")
 
 	cfg, err := Load()
 	if err != nil {
