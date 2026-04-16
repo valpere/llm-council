@@ -27,12 +27,6 @@ func CalculateAggregateRankings(stage2 []StageTwoResult, allLabels []string) ([]
 	// rankSums[i] = sum of ranks assigned to allLabels[i] across all judges.
 	rankSums := make([]float64, n)
 
-	// Index allLabels for O(1) position lookup.
-	labelIdx := make(map[string]int, n)
-	for i, l := range allLabels {
-		labelIdx[l] = i
-	}
-
 	validJudges := 0
 	for _, result := range stage2 {
 		if len(result.Rankings) == 0 {
