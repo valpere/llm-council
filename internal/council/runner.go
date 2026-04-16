@@ -9,6 +9,7 @@ import (
 )
 
 var errNotImplemented = errors.New("council: RunFull not yet implemented")
+var errNoChoices = errors.New("council: completion response contained no choices")
 
 // Council orchestrates the full multi-stage deliberation pipeline.
 // Full implementation is provided in a later milestone.
@@ -54,12 +55,15 @@ func (c *Council) runStage1(ctx context.Context, query string, models []string, 
 				Messages:    BuildStage1Prompt(query),
 				Temperature: temperature,
 			})
+			if err == nil && len(resp.Choices) == 0 {
+				err = errNoChoices
+			}
 			results[i] = StageOneResult{
 				Model:      model,
 				DurationMs: time.Since(start).Milliseconds(),
 				Error:      err,
 			}
-			if err == nil && len(resp.Choices) > 0 {
+			if err == nil {
 				results[i].Content = resp.Choices[0].Message.Content
 			}
 		}(i, model)

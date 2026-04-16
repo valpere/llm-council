@@ -109,7 +109,7 @@ func TestRunStage1_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestRunStage1_EmptyChoices_ContentEmpty(t *testing.T) {
+func TestRunStage1_EmptyChoices_IsError(t *testing.T) {
 	client := &mockLLMClient{
 		complete: func(_ context.Context, _ CompletionRequest) (CompletionResponse, error) {
 			return CompletionResponse{}, nil // no choices
@@ -118,10 +118,10 @@ func TestRunStage1_EmptyChoices_ContentEmpty(t *testing.T) {
 	c := NewCouncil(client, nil, nil)
 	results := c.runStage1(context.Background(), "q", []string{"model-a"}, 0.7)
 
-	if results[0].Error != nil {
-		t.Errorf("unexpected error: %v", results[0].Error)
+	if results[0].Error == nil {
+		t.Error("expected error for empty choices, got nil")
 	}
 	if results[0].Content != "" {
-		t.Errorf("Content: want empty when no choices, got %q", results[0].Content)
+		t.Errorf("Content: want empty on error, got %q", results[0].Content)
 	}
 }
