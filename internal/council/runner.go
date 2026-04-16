@@ -80,13 +80,14 @@ func (c *Council) runStage1(ctx context.Context, query string, models []string, 
 // Unknown labels are logged and dropped from the ranking.
 // LLM call failures are stored in StageTwoResult.Error; parse failures are not.
 func (c *Council) runStage2(ctx context.Context, query string, stage1 []StageOneResult, temperature float64) []StageTwoResult {
-	// Build the prompt input once — same for every reviewer.
+	// Build the prompt and label maps once — shared across all reviewer goroutines.
 	labeledResponses := make(map[string]string, len(stage1))
 	knownLabels := make(map[string]bool, len(stage1))
 	for _, r := range stage1 {
 		labeledResponses[r.Label] = r.Content
 		knownLabels[r.Label] = true
 	}
+	prompt := BuildStage2Prompt(query, labeledResponses)
 
 	results := make([]StageTwoResult, len(stage1))
 	var wg sync.WaitGroup
@@ -96,7 +97,7 @@ func (c *Council) runStage2(ctx context.Context, query string, stage1 []StageOne
 			defer wg.Done()
 			resp, err := c.client.Complete(ctx, CompletionRequest{
 				Model:          s1.Model,
-				Messages:       BuildStage2Prompt(query, labeledResponses),
+				Messages:       prompt,
 				Temperature:    temperature,
 				ResponseFormat: &ResponseFormat{Type: "json_object"},
 			})
@@ -115,6 +116,13 @@ func (c *Council) runStage2(ctx context.Context, query string, stage1 []StageOne
 			if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &parsed); err != nil {
 				if c.logger != nil {
 					c.logger.Warn("stage2: parse failure", slog.String("reviewer", s1.Label), slog.Any("error", err))
+				}
+				results[i] = StageTwoResult{ReviewerLabel: s1.Label}
+				return
+			}
+			if len(parsed.Rankings) == 0 {
+				if c.logger != nil {
+					c.logger.Warn("stage2: empty rankings", slog.String("reviewer", s1.Label))
 				}
 				results[i] = StageTwoResult{ReviewerLabel: s1.Label}
 				return

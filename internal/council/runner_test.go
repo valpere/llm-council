@@ -205,6 +205,37 @@ func TestRunStage2_UnknownLabelsDropped(t *testing.T) {
 	}
 }
 
+func TestRunStage2_EmptyOrMissingRankings_TreatedAsMissing(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{"missing rankings field", `{}`},
+		{"null rankings", `{"rankings":null}`},
+		{"empty rankings array", `{"rankings":[]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &mockLLMClient{
+				complete: func(_ context.Context, _ CompletionRequest) (CompletionResponse, error) {
+					return makeResponse(tc.payload), nil
+				},
+			}
+			c := NewCouncil(client, nil, nil)
+			results := c.runStage2(context.Background(), "q", stage1Fixture(), 0.7)
+
+			for i, r := range results {
+				if r.Error != nil {
+					t.Errorf("results[%d].Error: want nil, got %v", i, r.Error)
+				}
+				if r.Rankings != nil {
+					t.Errorf("results[%d].Rankings: want nil, got %v", i, r.Rankings)
+				}
+			}
+		})
+	}
+}
+
 func TestRunStage2_LLMFailure_SetsError(t *testing.T) {
 	errBoom := errors.New("api error")
 	client := &mockLLMClient{
