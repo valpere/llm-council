@@ -1,11 +1,21 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/valpere/llm-council/internal/api"
 	"github.com/valpere/llm-council/internal/config"
+	"github.com/valpere/llm-council/internal/council"
+	"github.com/valpere/llm-council/internal/openrouter"
+	"github.com/valpere/llm-council/internal/storage"
 )
 
 func main() {
@@ -19,5 +29,58 @@ func main() {
 		os.Exit(1)
 	}
 
-	_ = cfg // wiring in L3.8
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	// Build the council type registry from config fields.
+	registry := map[string]council.CouncilType{
+		cfg.DefaultCouncilType: {
+			Name:          cfg.DefaultCouncilType,
+			Strategy:      council.PeerReview,
+			Models:        cfg.DefaultCouncilModels,
+			ChairmanModel: cfg.DefaultCouncilChairmanModel,
+			Temperature:   cfg.DefaultCouncilTemperature,
+		},
+	}
+
+	client := openrouter.NewClient(cfg.OpenRouterAPIKey)
+	runner := council.NewCouncil(client, registry, logger)
+
+	store, err := storage.NewStore(cfg.DataDir, logger)
+	if err != nil {
+		logger.Error("storage init failed", "error", err)
+		os.Exit(1)
+	}
+
+	handler := api.NewHandler(runner, store, logger, cfg.DefaultCouncilType)
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	srv := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	// Graceful shutdown: cancel context on SIGINT or SIGTERM, then drain
+	// in-flight requests with a 10 s deadline.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		logger.Info("server starting", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	logger.Info("shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("shutdown error", "error", err)
+	}
 }
