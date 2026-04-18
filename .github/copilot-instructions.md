@@ -13,9 +13,9 @@ Conversations are persisted as JSON files on disk.
 
 ## Language and runtime
 
-- **Go 1.26+**. Module name: `llm-council`.
+- **Go 1.26+**. Module name: `github.com/valpere/llm-council`.
 - No CGo, no generated code.
-- Runtime dependencies: `github.com/joho/godotenv` only. UUIDs use `crypto/rand` (no uuid package).
+- Runtime dependency: `github.com/joho/godotenv` only. UUIDs use `crypto/rand` (no uuid package).
 
 ## Build, run, lint, test
 
@@ -38,56 +38,60 @@ Always run from the **project root**. The binary resolves `data/conversations/` 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OPENROUTER_API_KEY` | — | Required. API key for OpenRouter (or compatible provider). |
-| `COUNCIL_MODELS` | 4 preset models | Comma-separated OpenRouter model IDs |
-| `CHAIRMAN_MODEL` | `google/gemini-3.1-pro-preview` | Model for Stage 3 synthesis |
+| `COUNCIL_MODELS` | 3 local-dev fallback models (`gpt-4o-mini`, `claude-haiku-4-5`, `gemini-flash-1.5`) | Comma-separated OpenRouter model IDs. `.env.example` has 4-model presets. |
+| `CHAIRMAN_MODEL` | `openai/gpt-4o-mini` | Model for Stage 3 synthesis |
 | `DEFAULT_COUNCIL_TYPE` | `default` | Council strategy |
 | `DEFAULT_COUNCIL_TEMPERATURE` | `0.7` | LLM temperature |
 | `DATA_DIR` | `data/conversations` | Directory for JSON conversation files |
 | `PORT` | `8001` | TCP port |
-| `LLM_API_BASE_URL` | `https://openrouter.ai/api/v1` | Override for Ollama or any OpenAI-compatible endpoint |
+| `LLM_API_BASE_URL` | `https://openrouter.ai/api/v1/chat/completions` | Override for Ollama or any OpenAI-compatible endpoint |
 
 ## Package layout
 
 ```
 cmd/server/main.go            — entry point; wires config → openrouter → council → storage → api
 internal/config/config.go     — Config struct, Load() reads and validates env vars
-internal/openrouter/client.go — QueryModel() / QueryModelsParallel() (sync.WaitGroup)
+internal/openrouter/client.go — LLM client; Complete(ctx, req) API
 internal/council/types.go     — StageOneResult, StageTwoResult, StageThreeResult, Metadata, Result
-internal/council/council.go   — Stage1…3, RunFull(), GenerateTitle(), CalculateAggregateRankings()
-internal/storage/storage.go   — Create/Get/AddMessage/UpdateTitle/List; atomic writes; per-conv mutex
-internal/api/handler.go       — HTTP handlers, CORS middleware, SSE streaming; all routes in Routes()
+internal/council/runner.go    — Stage 1–3 runners and RunFull()
+internal/council/council.go   — council helpers: CalculateAggregateRankings(), etc.
+internal/council/rankings.go  — ranking logic
+internal/council/prompts.go   — prompt templates
+internal/storage/storage.go   — CreateConversation/GetConversation/SaveMessage/UpdateTitle; atomic writes; store-level RWMutex
+internal/api/handler.go       — HTTP handlers, CORS middleware, SSE streaming; routes via RegisterRoutes()
 ```
 
-## Layer boundaries (strict — never violate)
+## Layer boundaries
 
 ```
-cmd/server/main.go      — wiring only; no business logic
-internal/api/           — parse request → call interfaces → write response; no logic
+cmd/server/main.go      — composition root; wires concrete types only
+internal/api/           — parse request → call council/storage → write response
 internal/council/       — deliberation; no net/http, no storage
 internal/storage/       — persistence; no net/http, no council
 internal/openrouter/    — LLM API client; no council, no storage
 internal/config/        — env loading and validation only
 ```
 
-Cross-layer calls go through interfaces at the consumer boundary. `internal/api` must not import `internal/storage` or `internal/openrouter` directly — it uses interfaces.
+`internal/api` uses `internal/council` and `internal/storage` for handler logic. Moving these behind consumer-defined interfaces is an ongoing refactor target (not a current requirement).
 
 ## Key design constraints
 
-- **Atomic writes** — `storage.save()` writes to `{id}.json.tmp` then `os.Rename`; never write to `{id}.json` directly.
-- **Per-conversation locking** — `storage.lockConv(id)` wraps every read-modify-write cycle.
-- **Stage 2 label limit** — returns an error if `len(stage1Results) > 26`.
+- **Atomic writes** — storage writes to `{id}.json.tmp` then `os.Rename`; never write to `{id}.json` directly.
+- **Store-level locking** — a single `sync.RWMutex` on the `Store` serialises write operations.
+- **Stage 2 labels** — labels are generated sequentially from `A` using `rune('A'+i)`; there is no enforced error when `len(stage1Results) > 26`.
 - **Request body limit** — `http.MaxBytesReader(w, r.Body, 1<<20)` before decoding.
-- **SSE format** — all streaming events are `data: {...}\n\n` with a `type` field; no SSE `event:` line.
-- **CORS** — allowed origins in config (no hardcoded values); `Vary: Origin` set when reflecting.
+- **SSE format** — streaming events are `data: {...}\n\n` with a `type` field; no SSE `event:` line.
+- **CORS** — only `http://localhost:5173` and `http://localhost:3000` are allowed origins (hardcoded in `corsMiddleware`); `Vary: Origin` is set when reflecting.
 - **File permissions** — data dir: `0700`; conversation files: `0600`.
 
 ## HTTP API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/` | Health check → `{"status":"ok"}` |
+| GET | `/health/live` | Liveness check → `{"status":"ok"}` |
+| GET | `/health/ready` | Readiness check → `{"status":"ok"}` |
 | GET | `/api/conversations` | List conversations (metadata) |
-| POST | `/api/conversations` | Create conversation → HTTP 200 |
+| POST | `/api/conversations` | Create conversation → HTTP 201 |
 | GET | `/api/conversations/{id}` | Get conversation with messages |
 | POST | `/api/conversations/{id}/message` | Send message, full JSON response |
 | POST | `/api/conversations/{id}/message/stream` | Send message, SSE stream |
@@ -95,11 +99,8 @@ Cross-layer calls go through interfaces at the consumer boundary. `internal/api`
 ## SSE event sequence
 
 ```
-data: {"type":"stage1_start"}
 data: {"type":"stage1_complete","data":[...StageOneResult]}
-data: {"type":"stage2_start"}
 data: {"type":"stage2_complete","data":[...StageTwoResult],"metadata":{...}}
-data: {"type":"stage3_start"}
 data: {"type":"stage3_complete","data":{...StageThreeResult}}
 data: {"type":"title_complete","data":{"title":"..."}}   ← first message only
 data: {"type":"complete"}
@@ -116,7 +117,7 @@ On failure: `data: {"type":"error","message":"..."}` then return.
 1. Components are pure UI — no `fetch` calls, no imports from `api.js`.
 2. `src/api.js` is the sole network boundary. `onEvent(type, event)` is the only SSE interface `App.jsx` sees.
 3. `App.jsx` owns all state — only `App.jsx` calls `setCurrentConversation` / `setConversations`.
-4. `react-markdown` is the only renderer for LLM output — `dangerouslySetInnerHTML` is forbidden (XSS risk).
+4. `react-markdown` is the only renderer for LLM output — raw HTML injection is forbidden (XSS risk with model-generated content).
 
 **Source layout:**
 ```
@@ -138,7 +139,7 @@ frontend/src/
 
 **CSS conventions:** use `var(--token)` from `theme.css` — no hardcoded colour values.
 
-**Dev proxy:** `vite.config.js` reads `PORT` from the root `.env` and proxies `/api` to `http://localhost:{PORT}`. `VITE_API_BASE` is only for cross-origin production deployments.
+**Dev proxy:** `vite.config.js` reads `PORT` from root `.env` and proxies `/api` to `http://localhost:{PORT}`. `VITE_API_BASE` is only for cross-origin production deployments.
 
 **No test suite.** `npm run lint` is the quality gate.
 
@@ -146,5 +147,5 @@ frontend/src/
 
 - `math/rand` top-level functions are auto-seeded in Go 1.20+; no explicit seeding needed.
 - `os.Rename` is atomic on Linux (POSIX `rename(2)`); this project targets Linux only.
-- When adding tests, use real file I/O with `t.TempDir()` for storage tests — do not mock `os`.
-- The branch protection on `main` requires a pull request; never push directly to `main`.
+- Storage tests use real file I/O with `t.TempDir()` — do not mock `os`.
+- Branch protection on `main` requires a pull request; never push directly to `main`.

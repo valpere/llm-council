@@ -7,7 +7,7 @@ applyTo: "frontend/**"
 ## Architecture (immutable — flag every violation)
 
 - **No fetch in components.** Any component importing `api.js` or calling `fetch`/`XMLHttpRequest` directly is a violation.
-- **No raw HTML injection.** LLM output must go through `<Markdown>` (the `react-markdown` wrapper in `components/Markdown.jsx`). The `dangerouslySetInner​HTML` prop is banned — LLM content is untrusted and must never be injected as raw HTML.
+- **No raw HTML injection.** LLM output must go through `<Markdown>` (the `react-markdown` wrapper in `components/Markdown.jsx`). The `dangerouslySetInnerHTML` prop is banned — LLM content is untrusted and must never be injected as raw HTML.
 - **State belongs in App.jsx.** Components must not call `setCurrentConversation` or `setConversations`. State flows down via props; events flow up via callbacks.
 - **api.js is the sole network boundary.** It returns plain JS values or calls an `onEvent(type, event)` callback. HTTP status codes and raw SSE lines must not leak past this module.
 

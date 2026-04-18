@@ -6,10 +6,10 @@ applyTo: "**/*.go"
 
 ## Layer boundaries
 
-- `internal/api` must not import `internal/storage`, `internal/openrouter`, or `internal/council` directly — it must use interfaces.
+- `internal/api` currently imports `internal/council` and `internal/storage` directly. Moving these behind consumer-defined interfaces is an ongoing refactor target — flag any new direct coupling added beyond the current state.
 - `internal/council` must not import `net/http`, `internal/storage`, or `internal/api`.
 - `internal/storage` must not import `net/http`, `internal/council`, or `internal/openrouter`.
-- `cmd/server/main.go` is the only place that wires concrete types to interfaces.
+- `cmd/server/main.go` is the composition root — wiring of concrete types goes here only.
 
 ## Errors
 
@@ -31,7 +31,7 @@ applyTo: "**/*.go"
 
 ## Concurrency
 
-- Every read-modify-write on a conversation in `internal/storage` must hold the per-conversation mutex.
+- Write operations in `internal/storage` are serialised by a store-level `sync.RWMutex`; reads use `RLock`. Do not introduce per-conversation locking without a documented reason.
 - Goroutines spawned in handlers must use a context derived from the request (or `context.Background()` for fire-and-forget work that must outlive the request, documented with a comment explaining why).
 
 ## HTTP specifics
