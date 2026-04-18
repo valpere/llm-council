@@ -5,5 +5,5 @@ export function stripMarkdown(text) {
     .replace(/__(.+?)__/g, '$1')
     .replace(/_(.+?)_/g, '$1')
     .replace(/`(.+?)`/g, '$1')
-    .replace(/#+\s*/g, '');
+    .replace(/^#+\s*/gm, '');
 }
