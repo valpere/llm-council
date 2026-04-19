@@ -2,10 +2,12 @@
 
 ## Base URL
 
-The server binds to `http://localhost:{PORT}` where `PORT` defaults to `8001`.
+The server listens on port `PORT` (default `8001`) and binds on all interfaces (`0.0.0.0`)
+by default. For local development: `http://localhost:{PORT}`. From other machines:
+`http://<host>:{PORT}`.
 
 The frontend dev server (Vite at `:5173`) proxies `/api` requests to the backend, so no
-CORS headers are needed during development.
+additional CORS headers are needed during development when using that proxy.
 
 ---
 
@@ -105,7 +107,7 @@ Create a new conversation.
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "created_at": "2024-01-15T10:30:00Z",
-  "title": "",
+  "title": "New Conversation",
   "messages": []
 }
 ```
@@ -241,7 +243,7 @@ There is no `event:` line — demux by the `"type"` field of the JSON payload.
 data: {"type":"stage1_complete","data":[...StageOneResult]}
 data: {"type":"stage2_complete","data":[...StageTwoResult],"metadata":{...Metadata}}
 data: {"type":"stage3_complete","data":{...StageThreeResult}}
-data: {"type":"title_complete","data":{"title":"..."}}     ← first message in conversation only
+data: {"type":"title_complete","data":{"title":"..."}}     ← may be absent if title generation times out
 data: {"type":"complete"}
 ```
 
@@ -329,8 +331,10 @@ Emitted when the Chairman model has synthesised the final answer.
 
 ### `title_complete`
 
-Emitted only on the **first message** of a conversation, after `stage3_complete`.
-The title is the first 50 bytes of the Stage 3 response.
+Emitted after `stage3_complete` when title generation succeeds. May be **absent** if
+title generation times out (30-second deadline). The title is derived from the first
+50 **bytes** of the Stage 3 response — responses containing multi-byte UTF-8 characters
+may be cut mid-character.
 
 ```json
 {
