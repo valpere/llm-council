@@ -58,8 +58,8 @@ is written), so a proper HTTP status code is always possible.
 | Council quorum not met | `503` | `"council quorum not met"` |
 | Storage failure (pre-pipeline) | `500` | `"internal server error"` |
 | SSE streaming not supported by server | `500` | `"streaming not supported"` |
-| *(planned — issue #154)* Round-N with already-answered round | `409` | `"clarification round already answered"` |
-| *(planned — issue #154)* Round-N with no pending clarification round | `409` | `"no pending clarification round"` |
+| Round-N with already-answered round | `409` | `"clarification round already answered"` |
+| Round-N with no pending clarification round | `409` | `"no pending clarification round"` |
 
 ### SSE error events
 
@@ -282,11 +282,9 @@ There is no `event:` line — demux by the `"type"` field of the JSON payload.
 ## SSE event sequence
 
 ```
-← planned ──────────────────────────────────────────────────────────────
-data: {"type":"stage0_round_complete","data":{"round":1,"questions":[...]}}   ← stream closes here
+data: {"type":"stage0_round_complete","data":{"round":1,"questions":[...]}}   ← stream closes here (Stage 0 enabled)
   … client submits answers via new POST …
 data: {"type":"stage0_done"}                                                  ← Stage 1 follows
-─────────────────────────────────────────────────────────────────── planned →
 
 data: {"type":"stage1_complete","data":[...StageOneResult]}
 data: {"type":"stage2_complete","data":[...StageTwoResult],"metadata":{...Metadata}}
@@ -305,7 +303,7 @@ data: {"type":"error","message":"human-readable message"}
 
 After an error event the stream ends. No `complete` event follows.
 
-### `stage0_round_complete` *(planned — issue #154)*
+### `stage0_round_complete`
 
 Emitted when the chairman has questions for the user. The SSE stream **closes** after this event. The client must open a new stream with `{answers:[...]}` to continue.
 
@@ -322,7 +320,7 @@ Emitted when the chairman has questions for the user. The SSE stream **closes** 
 }
 ```
 
-### `stage0_done` *(planned — issue #154)*
+### `stage0_done`
 
 Emitted when the Stage 0 loop ends — chairman said "enough", limits were reached, or the user submitted all-empty answers. `stage1_complete` follows immediately on the same stream.
 
@@ -484,7 +482,7 @@ Emitted when the pipeline fails. Stream ends after this event.
 |-------|------|-------------|
 | `title` | string | First 50 bytes of the Stage 3 response, used as the conversation title |
 
-### `ClarificationQuestion` *(planned — issue #154)*
+### `ClarificationQuestion`
 
 | Field | Type | Description |
 |-------|------|-------------|

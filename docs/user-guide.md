@@ -55,9 +55,9 @@ All configuration is via environment variables. The server reads from `.env` at 
 | `PORT` | `8001` | TCP port the HTTP server listens on. |
 | `DATA_DIR` | `data/conversations` | Directory where conversation JSON files are stored. Relative to the working directory. |
 | `LLM_API_BASE_URL` | *(optional)* | Override the OpenRouter API base URL. Must be an absolute `http`/`https` URL. Useful for pointing at a compatible local proxy. |
-| `CLARIFICATION_MAX_ROUNDS` | `0` | *(planned — issue #154)* Max clarification rounds before Stage 1. `0` disables Stage 0 entirely — the API behaves identically to today. |
-| `CLARIFICATION_MAX_TOTAL_QUESTIONS` | `5` | *(planned)* Hard cap on questions accumulated across all rounds in one query. |
-| `CLARIFICATION_MAX_QUESTIONS_PER_ROUND` | `3` | *(planned)* Chairman trims to this many questions per round. |
+| `CLARIFICATION_MAX_ROUNDS` | `0` | Max clarification rounds before Stage 1. `0` disables Stage 0 entirely — the API behaves identically to before Stage 0. |
+| `CLARIFICATION_MAX_TOTAL_QUESTIONS` | `5` | Hard cap on questions accumulated across all rounds in one query. |
+| `CLARIFICATION_MAX_QUESTIONS_PER_ROUND` | `3` | Chairman trims to this many questions per round. |
 
 ### Default council models
 
@@ -226,7 +226,7 @@ The streaming endpoint emits [Server-Sent Events](https://developer.mozilla.org/
 ← data: {"type":"complete"}
 ```
 
-The `stage0_*` events are only emitted when `CLARIFICATION_MAX_ROUNDS > 0` (planned, issue #154). With the default (`CLARIFICATION_MAX_ROUNDS=0`) the sequence starts at `stage1_complete` as today.
+The `stage0_*` events are only emitted when `CLARIFICATION_MAX_ROUNDS > 0`. With the default (`CLARIFICATION_MAX_ROUNDS=0`) the sequence starts at `stage1_complete`.
 
 There are no `*_start` events — the client receives each stage result only when it is fully complete.
 
@@ -386,7 +386,7 @@ The Chairman model receives the consensus level as part of its synthesis prompt 
 
 ---
 
-## Stage 0: Clarification *(planned — issue #154)*
+## Stage 0: Clarification
 
 When `CLARIFICATION_MAX_ROUNDS` is greater than `0`, the pipeline runs a clarification loop *before* Stage 1. Each council model identifies ambiguities, contradictions, and unstated assumptions in the user's query and proposes questions. The Chairman consolidates and prioritises them (up to `CLARIFICATION_MAX_QUESTIONS_PER_ROUND` per round), then either sends them to the user or skips to generation if enough context exists.
 
