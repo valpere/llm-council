@@ -22,7 +22,7 @@ api.Handler.sendMessage / sendMessageStream      [internal/api/handler.go]
     │   1. validate UUID, body size, content XOR answers
     │   2. persist user message (round-1) OR load+update clarification round (round-N)
     │
-    │   ┌─ Stage 0 (planned — issue #154, gated by CLARIFICATION_MAX_ROUNDS > 0) ──────────┐
+    │   ┌─ Stage 0 (gated by CLARIFICATION_MAX_ROUNDS > 0) ──────────────────────────────┐
     │   │  3. council.RunClarificationRound(ctx, query, history, councilType, onEvent)       │
     │   │     └── emit stage0_round_complete → stream closes (awaiting client answers)       │
     │   │     OR  emit stage0_done → fall through to Stage 1                                 │
@@ -57,7 +57,7 @@ api.Handler:
 
 ---
 
-## 0. Stage 0: Clarification *(planned — issue #154)*
+## 0. Stage 0: Clarification
 
 **Files:** `internal/council/runner.go`, `internal/council/council.go`, `internal/storage/storage.go`
 
