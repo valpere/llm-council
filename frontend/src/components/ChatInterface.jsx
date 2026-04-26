@@ -18,6 +18,8 @@ export default function ChatInterface({
   onToggleSidebar,
 }) {
   const [input, setInput] = useState('');
+  const [context, setContext] = useState('');
+  const [contextExpanded, setContextExpanded] = useState(false);
   const messagesContainerRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -26,12 +28,19 @@ export default function ChatInterface({
     if (el) el.scrollTop = el.scrollHeight;
   }, [conversation?.messages]);
 
+  useEffect(() => {
+    setContext('');
+    setContextExpanded(false);
+  }, [conversation?.id]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     const text = input.trim();
     if (text && !isLoading) {
-      // Create new conversation if none is active — handled upstream; guard here
-      onSendMessage(text);
+      const content = context.trim()
+        ? `Context:\n${context.trim()}\n\nQuestion:\n${text}`
+        : text;
+      onSendMessage(content);
       setInput('');
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -143,27 +152,53 @@ export default function ChatInterface({
 
       {/* Input is always visible when a conversation is active */}
       <form className="input-form" onSubmit={handleSubmit}>
-        <textarea
-          ref={textareaRef}
-          className="message-input"
-          placeholder={
-            conversation.messages.at(-1)?.pendingClarification
-              ? 'Answer the questions above to continue…'
-              : 'Ask a question… (Enter to send, Shift+Enter for new line)'
-          }
-          value={input}
-          onInput={handleInput}
-          onKeyDown={handleKeyDown}
-          disabled={isLoading || !!conversation.messages.at(-1)?.pendingClarification}
-          rows={1}
-        />
-        <button
-          type="submit"
-          className="send-button"
-          disabled={!input.trim() || isLoading || !!conversation.messages.at(-1)?.pendingClarification}
-        >
-          Send
-        </button>
+        <div className="input-context">
+          <button
+            type="button"
+            className="context-toggle"
+            onClick={() => setContextExpanded((e) => !e)}
+            aria-expanded={contextExpanded}
+            aria-controls="context-textarea"
+            disabled={isLoading || !!conversation.messages.at(-1)?.pendingClarification}
+          >
+            <span className="context-toggle-chevron">{contextExpanded ? '▲' : '▼'}</span>
+            Context
+          </button>
+          {contextExpanded && (
+            <textarea
+              id="context-textarea"
+              className="context-textarea"
+              placeholder="Background information, constraints, or examples…"
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+              disabled={isLoading || !!conversation.messages.at(-1)?.pendingClarification}
+              rows={3}
+            />
+          )}
+        </div>
+        <div className="input-row">
+          <textarea
+            ref={textareaRef}
+            className="message-input"
+            placeholder={
+              conversation.messages.at(-1)?.pendingClarification
+                ? 'Answer the questions above to continue…'
+                : 'Ask a question… (Enter to send, Shift+Enter for new line)'
+            }
+            value={input}
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            disabled={isLoading || !!conversation.messages.at(-1)?.pendingClarification}
+            rows={1}
+          />
+          <button
+            type="submit"
+            className="send-button"
+            disabled={!input.trim() || isLoading || !!conversation.messages.at(-1)?.pendingClarification}
+          >
+            Send
+          </button>
+        </div>
       </form>
     </div>
   );
