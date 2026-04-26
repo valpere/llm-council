@@ -16,7 +16,7 @@ automated evaluation and optimization loop for LLM Council.
               ├── #147 /improve-council skill
               ├── #148 iterate workflow  ←── #147
               │         └── #149 archive + revert
-              └── #150 eval documentation
+              ├── #150 eval documentation
               └── #151 CI smoke benchmark
 ```
 
@@ -440,11 +440,11 @@ free OpenRouter models, then posts the results as a PR comment showing delta vs 
 ```
 ## Eval smoke results
 
-| Metric         | main  | this PR | delta  |
-|----------------|-------|---------|--------|
-| mean_score     | 7.40  | 7.65    | +0.25  |
-| mean_consensus | 0.61  | 0.64    | +0.03  |
-| total_cost_usd | 0.002 | 0.002   | 0.000  |
+| Metric           | main  | this PR | delta  |
+|------------------|-------|---------|--------|
+| mean_score       | 7.40  | 7.65    | +0.25  |
+| mean_consensus_w | 0.61  | 0.64    | +0.03  |
+| total_cost_usd   | 0.002 | 0.002   | 0.000  |
 ```
 
 **Acceptance criteria**
