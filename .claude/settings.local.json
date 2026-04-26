@@ -79,9 +79,7 @@
       "Bash(grep:*)",
       "Bash(make help:*)",
       "Bash(make check:*)"
-    ]
-  },
-  "permissions": {
+    ],
     "deny": [
       "Bash(rm -rf*)",
       "Bash(git push --force*)",

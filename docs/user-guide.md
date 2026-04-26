@@ -443,7 +443,7 @@ Each individual model query has a **120-second timeout**. If a model does not re
 
 ### Title generation
 
-After the first message in a conversation, the server derives a title from the first 50 bytes of the Stage 3 response and emits a `title_complete` SSE event. This runs with a 30-second deadline and does not block the pipeline. If it does not complete in time, the conversation retains the title `"New Conversation"`.
+After every response, the server truncates the Stage 3 content to 50 runes, saves it as the conversation title, and emits a `title_complete` SSE event before `complete`. The derivation is an in-memory string operation, so the 30-second fallback timeout is effectively unreachable in practice.
 
 ### Structured logs
 

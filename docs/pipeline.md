@@ -140,17 +140,17 @@ go func(idx int, model string) {
         Temperature: ct.Temperature,
     }
     resp, err := c.llm.Complete(ctx, req)
-    if err != nil { logger.Warn(...); return }      // slot stays nil
-    stage1[idx] = &StageOneResult{
+    if err != nil { results[i] = StageOneResult{Error: err}; return }
+    results[i] = StageOneResult{
         Content:    resp.Content,
         Model:      model,
         DurationMS: time.Since(start).Milliseconds(),
     }
-}(idx, model)
+}(i, model)
 ```
 
 `sync.WaitGroup` joins all goroutines; **no mutex** — each goroutine writes to its own
-pre-allocated slice slot.
+pre-allocated `[]StageOneResult` slot (value type, not pointer).
 
 ### 4.3 Quorum check
 
@@ -159,7 +159,7 @@ pre-allocated slice slot.
 - Count non-nil entries: `successes`.
 - Required: `ct.QuorumMin` if `> 0`, otherwise `max(2, (N+1)/2 + 1)` (majority + 1,
   never less than 2).
-- If `successes < required` → return `*QuorumError{Got, Want, Total}`. Handler maps
+- If `successes < required` → return `*QuorumError{Got: N, Need: N}`. Handler maps
   this to **HTTP 503** (or an `error` SSE event on the streaming path).
 
 ### 4.4 Label assignment
@@ -201,9 +201,9 @@ Nil entries (failed Stage 1 calls) are filtered out before emission.
 
 ### 5.1 Prompt construction
 
-`BuildStage2Prompt(query, others, reviewerLabel)` — `others` is the list of all
-successful Stage 1 results **sorted by label**, including the reviewer's own response
-(reviewers do not know which is theirs).
+`BuildStage2Prompt(query string, labeledResponses map[string]string)` — `labeledResponses`
+maps anonymous label → response text. Labels are sorted internally for a deterministic
+prompt order.
 
 ```
 You are reviewing answers to the following question:

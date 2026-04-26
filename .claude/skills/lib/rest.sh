@@ -20,15 +20,18 @@ rest_post() {
   local auth_scheme="${4:-Bearer}"
   local timeout="${REST_TIMEOUT:-120}"
 
-  local -a curl_args=(-sf --max-time "$timeout" -H "Content-Type: application/json" -d "$payload")
+  local -a curl_args=(-sS --max-time "$timeout" -H "Content-Type: application/json" -d "$payload")
   [ -n "$api_key" ] && curl_args+=(-H "Authorization: ${auth_scheme} ${api_key}")
 
-  local response
-  response=$(curl "${curl_args[@]}" "$url" 2>&1)
-  local exit_code=$?
+  local response curl_err exit_code errfile
+  errfile=$(mktemp)
+  response=$(curl "${curl_args[@]}" "$url" 2>"$errfile")
+  exit_code=$?
+  curl_err=$(cat "$errfile")
+  rm -f "$errfile"
 
   if [ $exit_code -ne 0 ]; then
-    echo "ERROR: REST POST to ${url} failed (curl exit ${exit_code})" >&2
+    echo "ERROR: REST POST to ${url} failed (curl exit ${exit_code}): ${curl_err}" >&2
     return 1
   fi
 
