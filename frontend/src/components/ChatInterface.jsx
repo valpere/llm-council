@@ -42,6 +42,8 @@ export default function ChatInterface({
         : text;
       onSendMessage(content);
       setInput('');
+      setContext('');
+      setContextExpanded(false);
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
