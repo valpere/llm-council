@@ -48,5 +48,6 @@ func NewCodeReviewCouncilType(models []string, chairmanModel string, temperature
 		Roles:         DefaultReviewRoles,
 		ChairmanModel: chairmanModel,
 		Temperature:   temperature,
+		QuorumMin:     len(DefaultReviewRoles),
 	}
 }

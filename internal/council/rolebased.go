@@ -38,9 +38,10 @@ func (c *Council) runRoleBased(ctx context.Context, query string, ct CouncilType
 	// Stage 2: skipped for role-based strategies.
 	// Emit a minimal Stage2CompleteData so SSE clients receive the expected event.
 	meta := Metadata{
-		CouncilType:  ct.Name,
-		LabelToModel: labelToModel,
-		ConsensusW:   1.0, // roles are complementary, not competing
+		CouncilType:       ct.Name,
+		LabelToModel:      labelToModel,
+		AggregateRankings: []RankedModel{},
+		ConsensusW:        1.0, // roles are complementary, not competing
 	}
 	if onEvent != nil {
 		onEvent("stage2_complete", Stage2CompleteData{Results: nil, Metadata: meta})

@@ -761,9 +761,51 @@ func (h *Handler) sendReviewStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	sendSSE := func(eventType string, data any) {
-		b, _ := json.Marshal(data)
-		envelope, _ := json.Marshal(sseEnvelope{Type: eventType, Data: b})
-		fmt.Fprintf(w, "data: %s\n\n", envelope)
+		dataJSON, err := json.Marshal(data)
+		if err != nil {
+			h.logger.Error("marshal SSE event data", "type", eventType, "error", err)
+			return
+		}
+		env := sseEnvelope{Type: eventType, Data: json.RawMessage(dataJSON)}
+		envJSON, err := json.Marshal(env)
+		if err != nil {
+			h.logger.Error("marshal SSE envelope", "type", eventType, "error", err)
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", envJSON)
+		flusher.Flush()
+	}
+
+	sendStage2SSE := func(d council.Stage2CompleteData) {
+		type stage2Payload struct {
+			Type     string                   `json:"type"`
+			Data     []council.StageTwoResult `json:"data"`
+			Metadata council.Metadata         `json:"metadata"`
+		}
+		b, err := json.Marshal(stage2Payload{
+			Type:     "stage2_complete",
+			Data:     d.Results,
+			Metadata: d.Metadata,
+		})
+		if err != nil {
+			h.logger.Error("marshal stage2 SSE payload", "error", err)
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		flusher.Flush()
+	}
+
+	sendErrorSSE := func(msg string) {
+		type errPayload struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		}
+		b, err := json.Marshal(errPayload{Type: "error", Message: msg})
+		if err != nil {
+			h.logger.Error("marshal error SSE payload", "error", err)
+			return
+		}
+		fmt.Fprintf(w, "data: %s\n\n", b)
 		flusher.Flush()
 	}
 
@@ -779,18 +821,28 @@ func (h *Handler) sendReviewStream(w http.ResponseWriter, r *http.Request) {
 			if v, ok := data.([]council.StageOneResult); ok {
 				stage1Results = v
 			}
+			sendSSE(eventType, data)
 		case "stage2_complete":
 			if v, ok := data.(council.Stage2CompleteData); ok {
 				stage2Data = v
+				sendStage2SSE(v)
 			}
 		case "stage3_complete":
 			if v, ok := data.(council.StageThreeResult); ok {
 				stage3Result = v
 			}
+			sendSSE(eventType, data)
+		default:
+			sendSSE(eventType, data)
 		}
-		sendSSE(eventType, data)
 	}); err != nil {
-		sendSSE("error", map[string]string{"message": err.Error()})
+		if qe, ok := errors.AsType[*council.QuorumError](err); ok {
+			h.logger.Warn("review council quorum not met", "id", id, "got", qe.Got, "need", qe.Need)
+			sendErrorSSE("council quorum not met")
+		} else {
+			h.logger.Error("review council run", "id", id, "error", err)
+			sendErrorSSE("internal server error")
+		}
 		return
 	}
 
@@ -801,7 +853,12 @@ func (h *Handler) sendReviewStream(w http.ResponseWriter, r *http.Request) {
 		Stage3:   stage3Result,
 		Metadata: stage2Data.Metadata,
 	}
-	_ = h.storage.SaveAssistantMessage(id, msg)
+
+	if err := h.storage.SaveAssistantMessage(id, msg); err != nil {
+		h.logger.Error("save review assistant message (stream)", "id", id, "error", err)
+		sendErrorSSE("internal server error")
+		return
+	}
 }
 
 // handleRunError translates RunFull errors to HTTP responses.
