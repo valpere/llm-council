@@ -43,6 +43,11 @@ func main() {
 			ChairmanModel: cfg.DefaultCouncilChairmanModel,
 			Temperature:   cfg.DefaultCouncilTemperature,
 		},
+		"code-review": council.NewCodeReviewCouncilType(
+			cfg.CodeReviewModels,
+			cfg.CodeReviewChairmanModel,
+			cfg.DefaultCouncilTemperature,
+		),
 	}
 
 	client := openrouter.NewClient(cfg.OpenRouterAPIKey, cfg.LLMBaseURL, 120*time.Second)
