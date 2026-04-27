@@ -5,14 +5,23 @@ type Strategy int
 
 const (
 	PeerReview Strategy = iota
+	RoleBased
+	RoleBasedReview
 )
+
+// Role defines a named participant with a specific mandate in a role-based council.
+type Role struct {
+	Name        string `json:"name"`
+	Instruction string `json:"instruction"` // system-level prompt for this role
+}
 
 // CouncilType describes a named council configuration.
 // QuorumMin of 0 means use the formula: max(2, ⌈N/2⌉+1).
 type CouncilType struct {
 	Name          string
 	Strategy      Strategy
-	Models        []string
+	Models        []string // PeerReview: all council members; RoleBased: assigned to Roles by index mod len
+	Roles         []Role   // RoleBased / RoleBasedReview: role definitions with instructions
 	ChairmanModel string
 	Temperature   float64
 	QuorumMin     int // 0 = use formula: max(2, ⌈N/2⌉+1)
