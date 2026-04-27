@@ -255,3 +255,39 @@ func BuildStage3Prompt(query string, rankings []StageTwoResult, labelToModel map
 		{Role: "user", Content: sb.String()},
 	}
 }
+
+// BuildRoleStage1Prompt returns messages for a role participant.
+// The system message carries the role instruction; the user message carries the query.
+func BuildRoleStage1Prompt(role Role, query string) []ChatMessage {
+	return []ChatMessage{
+		{Role: "system", Content: role.Instruction},
+		{Role: "user", Content: query},
+	}
+}
+
+// BuildRoleChairmanPrompt returns messages for the chairman to synthesise role findings.
+// Each role's findings appear in a labelled section. The chairman produces the final review.
+func BuildRoleChairmanPrompt(query string, results []StageOneResult) []ChatMessage {
+	var sb strings.Builder
+	sb.WriteString("You are the lead reviewer. Synthesise the findings below into a clear, ")
+	sb.WriteString("prioritised review. Remove duplicates. Group by file. Order by severity ")
+	sb.WriteString("(critical → high → medium → low). Note which role(s) flagged each issue.\n\n")
+	sb.WriteString("ORIGINAL QUERY:\n")
+	sb.WriteString(query)
+	sb.WriteString("\n\n")
+
+	for _, r := range results {
+		sb.WriteString("=== ")
+		sb.WriteString(r.Label)
+		sb.WriteString(" REVIEWER FINDINGS ===\n")
+		sb.WriteString(r.Content)
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString("Write your synthesised review in Markdown. ")
+	sb.WriteString("If there are no findings across all reviewers, state that explicitly.")
+
+	return []ChatMessage{
+		{Role: "user", Content: sb.String()},
+	}
+}
