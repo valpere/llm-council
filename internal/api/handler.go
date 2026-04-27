@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -82,6 +83,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/conversations/{id}", h.wrap(h.getConversation))
 	mux.Handle("POST /api/conversations/{id}/message", h.wrap(h.sendMessage))
 	mux.Handle("POST /api/conversations/{id}/message/stream", h.wrap(h.sendMessageStream))
+	mux.Handle("POST /api/conversations/{id}/review", h.wrap(h.sendReview))
+	mux.Handle("POST /api/conversations/{id}/review/stream", h.wrap(h.sendReviewStream))
 }
 
 // wrap applies CORS and security headers to every route.
@@ -634,6 +637,171 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 	// Spec: { "type": "complete" } with no payload.
 	fmt.Fprintf(w, "data: {\"type\":\"complete\"}\n\n")
 	flusher.Flush()
+}
+
+// reviewRequest is the body for code-review endpoints.
+type reviewRequest struct {
+	Content string `json:"content"`
+}
+
+func (req reviewRequest) validate() error {
+	if strings.TrimSpace(req.Content) == "" {
+		return errors.New("content is required")
+	}
+	return nil
+}
+
+func (h *Handler) sendReview(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidRE.MatchString(id) {
+		h.writeError(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+
+	var body reviewRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := body.validate(); err != nil {
+		h.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.storage.SaveUserMessage(id, body.Content); err != nil {
+		if _, ok := errors.AsType[*storage.NotFoundError](err); ok {
+			h.writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		h.logger.Error("save review user message", "id", id, "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	var (
+		stage1Results []council.StageOneResult
+		stage2Data    council.Stage2CompleteData
+		stage3Result  council.StageThreeResult
+	)
+
+	if err := h.runner.RunFull(r.Context(), body.Content, "code-review", func(eventType string, data any) {
+		switch eventType {
+		case "stage1_complete":
+			if v, ok := data.([]council.StageOneResult); ok {
+				stage1Results = v
+			}
+		case "stage2_complete":
+			if v, ok := data.(council.Stage2CompleteData); ok {
+				stage2Data = v
+			}
+		case "stage3_complete":
+			if v, ok := data.(council.StageThreeResult); ok {
+				stage3Result = v
+			}
+		}
+	}); err != nil {
+		h.handleRunError(w, id, err)
+		return
+	}
+
+	msg := council.AssistantMessage{
+		Role:     "assistant",
+		Stage1:   stage1Results,
+		Stage2:   stage2Data.Results,
+		Stage3:   stage3Result,
+		Metadata: stage2Data.Metadata,
+	}
+
+	if err := h.storage.SaveAssistantMessage(id, msg); err != nil {
+		h.logger.Error("save review assistant message", "id", id, "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, msg)
+}
+
+func (h *Handler) sendReviewStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		h.writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	id := r.PathValue("id")
+	if !uuidRE.MatchString(id) {
+		h.writeError(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+
+	var body reviewRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := body.validate(); err != nil {
+		h.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.storage.SaveUserMessage(id, body.Content); err != nil {
+		if _, ok := errors.AsType[*storage.NotFoundError](err); ok {
+			h.writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		h.logger.Error("save review user message (stream)", "id", id, "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	sendSSE := func(eventType string, data any) {
+		b, _ := json.Marshal(data)
+		envelope, _ := json.Marshal(sseEnvelope{Type: eventType, Data: b})
+		fmt.Fprintf(w, "data: %s\n\n", envelope)
+		flusher.Flush()
+	}
+
+	var (
+		stage1Results []council.StageOneResult
+		stage2Data    council.Stage2CompleteData
+		stage3Result  council.StageThreeResult
+	)
+
+	if err := h.runner.RunFull(r.Context(), body.Content, "code-review", func(eventType string, data any) {
+		switch eventType {
+		case "stage1_complete":
+			if v, ok := data.([]council.StageOneResult); ok {
+				stage1Results = v
+			}
+		case "stage2_complete":
+			if v, ok := data.(council.Stage2CompleteData); ok {
+				stage2Data = v
+			}
+		case "stage3_complete":
+			if v, ok := data.(council.StageThreeResult); ok {
+				stage3Result = v
+			}
+		}
+		sendSSE(eventType, data)
+	}); err != nil {
+		sendSSE("error", map[string]string{"message": err.Error()})
+		return
+	}
+
+	msg := council.AssistantMessage{
+		Role:     "assistant",
+		Stage1:   stage1Results,
+		Stage2:   stage2Data.Results,
+		Stage3:   stage3Result,
+		Metadata: stage2Data.Metadata,
+	}
+	_ = h.storage.SaveAssistantMessage(id, msg)
 }
 
 // handleRunError translates RunFull errors to HTTP responses.
