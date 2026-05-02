@@ -5,10 +5,16 @@ pipeline — from the HTTP request landing on the Go server to the final SSE `co
 event being flushed to the browser. It is a code-anchored walkthrough; every step
 references the function and file responsible for it.
 
-The current implementation supports a single `Strategy = PeerReview` (an `iota` enum
-with no other variants). Three external models are involved per request: **N council
-members** (Stage 1 generators + Stage 2 peer reviewers) and **1 chairman** (Stage 3
-synthesiser).
+Two pipeline strategies are implemented, selected by `CouncilType.Strategy`:
+
+- **`PeerReview`** (default) — N council members independently answer, then anonymously
+  rank each other, and a chairman synthesises the result. Three external-model stages.
+- **`RoleBased` / `RoleBasedReview`** — M specialised roles run in parallel (Stage 1),
+  Stage 2 is skipped, and a chairman synthesises all role outputs (Stage 3). Used by the
+  `/review` endpoints for code review.
+
+For the PeerReview pipeline: **N council members** (Stage 1 generators + Stage 2 peer
+reviewers) and **1 chairman** (Stage 3 synthesiser).
 
 ---
 
@@ -619,16 +625,131 @@ the several seconds while council models are running.
 
 ---
 
+---
+
+## RoleBased pipeline (RoleBased / RoleBasedReview)
+
+**File:** `internal/council/rolebased.go` — `runRoleBased`
+
+`RunFull` dispatches to `runRoleBased` when `ct.Strategy == RoleBased || RoleBasedReview`.
+
+### High-level flow
+
+```
+POST /api/conversations/{id}/review[/stream]
+    │
+    ▼
+api.Handler.sendReview / sendReviewStream        [internal/api/handler.go]
+    │   1. validate UUID, body size, content non-empty
+    │   2. persist user message
+    │
+    ▼
+council.Council.RunFull("code-review")            [internal/council/runner.go]
+    │   resolves ct = NewCodeReviewCouncilType(...)
+    │   dispatches to runRoleBased
+    │
+    ▼
+council.runRoleBased                              [internal/council/rolebased.go]
+    │
+    ├── Stage 1: runRoleBasedStage1 (parallel, M goroutines — one per role)
+    │     │
+    │     └── checkQuorum(stage1, ct.QuorumMin)  — all M roles required
+    │     └── emit stage1_complete  (labels = role names, not A/B/C)
+    │
+    ├── Stage 2: skipped
+    │     └── emit stage2_complete  (data=[], ConsensusW=1.0, AggregateRankings=[])
+    │
+    └── Stage 3: runRoleBasedStage3 (single chairman call)
+          └── emit stage3_complete
+    │
+    ▼
+api.Handler:
+    3. persist assistant message
+    4. spawn title goroutine; select on 30s deadline
+    5. emit title_complete (if title generated in time)
+    6. emit complete
+```
+
+### Stage 1 — parallel role execution
+
+**File:** `internal/council/rolebased.go` — `runRoleBasedStage1`
+**Prompt:** `internal/council/prompts.go` — `BuildRoleStage1Prompt`
+
+Each `Role` in `ct.Roles` maps to one goroutine. Model assignment:
+
+```go
+model := ct.Models[idx % len(ct.Models)]
+```
+
+One model handles all roles; 4 models give one per role; any count wraps round-robin.
+
+`BuildRoleStage1Prompt(role Role, query string)` returns:
+
+```
+[ { "role": "system", "content": role.Instruction },
+  { "role": "user",   "content": query } ]
+```
+
+The `StageOneResult.Label` is set to the role's `Name` (`"security"`, `"logic"`, etc.),
+not an anonymous `Response X` label.
+
+**Quorum:** `checkQuorum(results, ct.QuorumMin)` with `QuorumMin = len(DefaultReviewRoles)` (4 for
+`code-review`). Every role must succeed — unlike `PeerReview` where partial success is
+allowed, each role covers a unique concern and a missing role silently drops coverage.
+
+### Stage 2 — skipped
+
+The `RoleBased` pipeline has no peer-ranking step: roles are complementary, not
+competing, so ranking is semantically meaningless. A minimal `stage2_complete` event is
+emitted to keep SSE clients compatible:
+
+```go
+Metadata{
+    CouncilType:       ct.Name,
+    LabelToModel:      labelToModel,    // role name → model
+    AggregateRankings: []RankedModel{}, // empty — not applicable
+    ConsensusW:        1.0,             // placeholder
+}
+```
+
+`Stage2CompleteData.Results` is `nil` (serialises as `null` in the JSON `data` field).
+
+### Stage 3 — chairman synthesis
+
+**File:** `internal/council/rolebased.go` — `runRoleBasedStage3`
+**Prompt:** `internal/council/prompts.go` — `BuildRoleChairmanPrompt`
+
+`BuildRoleChairmanPrompt(query string, results []StageOneResult)` formats each role's
+output into a labelled section:
+
+```
+The following is a code review of the provided code diff.
+Each section is the output of a specialised reviewer role.
+
+## security
+<content>
+
+## logic
+<content>
+...
+
+Based on all reviewer findings above, produce a consolidated code review.
+```
+
+---
+
 ## File reference index
 
 | File | Key symbols |
 |------|------------|
-| `internal/api/handler.go` | `sendMessage`, `sendMessageStream` |
+| `internal/api/handler.go` | `sendMessage`, `sendMessageStream`, `sendReview`, `sendReviewStream` |
 | `internal/council/runner.go` | `Council.RunFull`, `runStage1`, `runStage2`, `runStage3` |
+| `internal/council/rolebased.go` | `runRoleBased`, `runRoleBasedStage1`, `runRoleBasedStage3` |
+| `internal/council/review_roles.go` | `DefaultReviewRoles`, `NewCodeReviewCouncilType` |
 | `internal/council/council.go` | `checkQuorum`, `assignLabels`, `QuorumError` |
 | `internal/council/rankings.go` | `CalculateAggregateRankings` |
-| `internal/council/prompts.go` | `BuildStage1Prompt`, `BuildStage2Prompt`, `BuildStage3Prompt` |
-| `internal/council/types.go` | `CouncilType`, `Strategy`, `StageOneResult`, `StageTwoResult`, `StageThreeResult`, `Metadata`, `EventFunc` |
+| `internal/council/prompts.go` | `BuildStage1Prompt`, `BuildStage2Prompt`, `BuildStage3Prompt`, `BuildRoleStage1Prompt`, `BuildRoleChairmanPrompt` |
+| `internal/council/types.go` | `CouncilType`, `Strategy`, `Role`, `StageOneResult`, `StageTwoResult`, `StageThreeResult`, `Metadata`, `EventFunc` |
 | `internal/openrouter/client.go` | `Client.Complete` |
 | `internal/storage/storage.go` | `Store.Get`, `AppendMessage`, `SaveTitle` |
 | `frontend/src/api.js` | `sendMessageStream` |

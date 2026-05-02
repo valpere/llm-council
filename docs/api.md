@@ -56,6 +56,7 @@ is written), so a proper HTTP status code is always possible.
 | Malformed or missing request body | `400` | `"invalid request body"` |
 | Conversation not found | `404` | `"not found"` |
 | Council quorum not met | `503` | `"council quorum not met"` |
+| Review: one or more roles failed (all 4 required) | `503` | `"council quorum not met"` |
 | Storage failure (pre-pipeline) | `500` | `"internal server error"` |
 | SSE streaming not supported by server | `500` | `"streaming not supported"` |
 | Round-N with already-answered round | `409` | `"clarification round already answered"` |
@@ -259,6 +260,7 @@ Each event is flushed immediately as the stage completes — no polling required
 
 **Request body** — same as `/message`.
 
+
 **Response headers**
 
 ```
@@ -276,6 +278,51 @@ data: {"type":"<event_type>",...}\n\n
 ```
 
 There is no `event:` line — demux by the `"type"` field of the JSON payload.
+
+---
+
+### `POST /api/conversations/{id}/review`
+
+Run a code review using the `RoleBasedReview` pipeline and receive the full result in a
+single JSON response (blocking).
+
+**Path parameter** — `id`: UUID v4.
+
+**Request body**
+
+```json
+{ "content": "<code diff or snippet to review>" }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | yes | The code diff or snippet to review |
+
+The council type is always `"code-review"` — there is no `council_type` field.
+
+**Response `200 OK`** — `AssistantMessage` (same shape as `/message`).
+
+Stage 1 `label` fields are **role names** (`security`, `logic`, `simplicity`,
+`architecture`) rather than `Response A`/`B`/…. Stage 2 `data` is `[]` and
+`metadata.aggregate_rankings` is `[]`, `metadata.consensus_w` is `1.0`
+(roles are complementary, not competing).
+
+**Errors:** `400` (invalid body/UUID), `404` (not found), `503` (role quorum not met — all 4 roles must succeed), `500`.
+
+---
+
+### `POST /api/conversations/{id}/review/stream`
+
+Run a code review and receive results as a Server-Sent Events stream. Identical to
+`/review` but streams each stage as it completes.
+
+**Path parameter** — `id`: UUID v4.
+
+**Request body** — same as `/review`.
+
+**Response headers** — same as `/message/stream`.
+
+**SSE event sequence** — see [Review SSE event sequence](#review-sse-event-sequence).
 
 ---
 
@@ -430,6 +477,105 @@ Emitted when the pipeline fails. Stream ends after this event.
 
 ```json
 { "type": "error", "message": "council quorum not met" }
+```
+
+---
+
+## Review SSE event sequence
+
+Used by `POST /api/conversations/{id}/review/stream`. Stage 2 is skipped by the
+`RoleBasedReview` pipeline; a minimal `stage2_complete` is emitted for SSE
+compatibility.
+
+```
+data: {"type":"stage1_complete","data":[...RoleResult]}
+data: {"type":"stage2_complete","data":[],"metadata":{...Metadata}}
+data: {"type":"stage3_complete","data":{...StageThreeResult}}
+data: {"type":"title_complete","data":{"title":"..."}}     ← may be absent
+data: {"type":"complete"}
+```
+
+On failure:
+
+```
+data: {"type":"error","message":"council quorum not met"}
+```
+
+All 4 roles must succeed — if any role call fails, the stream ends with an error event.
+
+### `stage1_complete` (review)
+
+Labels are **role names** (`security`, `logic`, `simplicity`, `architecture`), not
+`Response A`/`B`/…. Each model returns a JSON array of findings.
+
+```json
+{
+  "type": "stage1_complete",
+  "data": [
+    {
+      "label": "security",
+      "content": "[{\"file\":\"cmd/server/main.go\",\"line\":42,\"severity\":\"high\",\"body\":\"...\"}]",
+      "model": "openai/gpt-4o-mini",
+      "duration_ms": 1540
+    },
+    {
+      "label": "logic",
+      "content": "[]",
+      "model": "anthropic/claude-haiku-4-5",
+      "duration_ms": 980
+    },
+    {
+      "label": "simplicity",
+      "content": "[{\"file\":\"internal/api/handler.go\",\"line\":88,\"severity\":\"low\",\"body\":\"...\"}]",
+      "model": "google/gemini-flash-1.5",
+      "duration_ms": 760
+    },
+    {
+      "label": "architecture",
+      "content": "[]",
+      "model": "openai/gpt-4o-mini",
+      "duration_ms": 1120
+    }
+  ]
+}
+```
+
+### `stage2_complete` (review)
+
+Stage 2 is skipped. The event is emitted with an empty `data` array and a metadata
+block where `aggregate_rankings` is `[]` and `consensus_w` is `1.0`.
+
+```json
+{
+  "type": "stage2_complete",
+  "data": [],
+  "metadata": {
+    "council_type": "code-review",
+    "label_to_model": {
+      "security":     "openai/gpt-4o-mini",
+      "logic":        "anthropic/claude-haiku-4-5",
+      "simplicity":   "google/gemini-flash-1.5",
+      "architecture": "openai/gpt-4o-mini"
+    },
+    "aggregate_rankings": [],
+    "consensus_w": 1.0
+  }
+}
+```
+
+### `stage3_complete` (review)
+
+The chairman reads all role findings and produces a consolidated review.
+
+```json
+{
+  "type": "stage3_complete",
+  "data": {
+    "content": "## Code Review Summary\n\n**Security** found 1 high-severity issue...",
+    "model": "anthropic/claude-sonnet-4-5",
+    "duration_ms": 2100
+  }
+}
 ```
 
 ---
