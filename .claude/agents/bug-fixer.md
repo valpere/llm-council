@@ -1,8 +1,9 @@
 ---
 name: bug-fixer
-description: Use when a runtime panic, test failure, or broken behaviour has been identified and needs diagnosis and repair with minimal intervention. Invoke reactively in response to concrete errors — not proactively for improvements. One bug, one minimal fix, one commit.
-tools: Bash, Glob, Grep, Read, Edit, Write
+description: "Use when a runtime panic, test failure, or broken behaviour has been identified and needs diagnosis and repair with minimal intervention. Invoke reactively in response to concrete errors — not proactively for improvements. One bug, one minimal fix, one commit.\n\n<example>\nContext: A test suite run has revealed a failing test in the council package.\nuser: \"Test `TestRunFull_ContextCancellation` is failing with: `panic: send on closed channel`\"\nassistant: \"I'll launch the bug-fixer agent to diagnose and repair this failure.\"\n<commentary>A specific test failure with a panic trace is exactly the trigger for bug-fixer.</commentary>\n</example>\n\n<example>\nContext: The server panics on startup after a refactor.\nuser: \"Server panics: `interface conversion: *openrouter.Client does not implement council.LLMClient`\"\nassistant: \"Interface mismatch after refactor — I'll use bug-fixer to trace the compile-time assertion and fix the implementation.\"\n<commentary>A compile-time or runtime interface mismatch is a clear trigger for bug-fixer.</commentary>\n</example>\n\n<example>\nContext: CI is red after a commit.\nuser: \"CI red: `go vet: internal/storage/storage.go:84: suspicious assignment to sync.Mutex`\"\nassistant: \"I'll use bug-fixer to correct the mutex usage without changing the surrounding logic.\"\n<commentary>A static analysis failure in CI is a trigger for bug-fixer.</commentary>\n</example>"
+tools: Bash, Glob, Grep, Read, Edit, Write, LSP
 model: sonnet
+color: red
 memory: project
 ---
 
