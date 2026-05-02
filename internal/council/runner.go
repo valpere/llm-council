@@ -52,17 +52,24 @@ func NewCouncil(client LLMClient, registry map[string]CouncilType, logger *slog.
 var _ Runner = (*Council)(nil)
 var _ Stage0Runner = (*Council)(nil)
 
-// RunFull orchestrates the full LCCP Core deliberation pipeline:
-// label assignment → Stage 1 → quorum check → Stage 2 → Kendall's W → Stage 3.
-// Events are emitted synchronously via onEvent so the caller can flush after each.
-// Returns *QuorumError immediately if stage 1 quorum is not met (no stage2/3 events).
-// Returns an error for unknown councilTypeName or stage 3 failures.
+// RunFull dispatches to the pipeline implementation for the council type's strategy.
 func (c *Council) RunFull(ctx context.Context, query string, councilTypeName string, onEvent EventFunc) error {
 	ct, ok := c.registry[councilTypeName]
 	if !ok {
 		return fmt.Errorf("council: unknown council type %q", councilTypeName)
 	}
+	switch ct.Strategy {
+	case PeerReview:
+		return c.runPeerReview(ctx, query, ct, onEvent)
+	case RoleBased, RoleBasedReview:
+		return c.runRoleBased(ctx, query, ct, onEvent)
+	default:
+		return fmt.Errorf("council: strategy %d not implemented", ct.Strategy)
+	}
+}
 
+// runPeerReview runs the Karpathy-style 3-stage peer review pipeline.
+func (c *Council) runPeerReview(ctx context.Context, query string, ct CouncilType, onEvent EventFunc) error {
 	// Stage 1 — parallel generation across all configured models.
 	allStage1 := c.runStage1(ctx, query, ct.Models, ct.Temperature)
 
@@ -90,7 +97,6 @@ func (c *Council) RunFull(ctx context.Context, query string, councilTypeName str
 	stage2Results := c.runStage2(ctx, query, successful, ct.Temperature)
 
 	// Compute aggregate rankings and Kendall's W consensus coefficient.
-	// Sort labels for deterministic ranking output across runs.
 	allLabels := make([]string, 0, len(labelToModel))
 	for label := range labelToModel {
 		allLabels = append(allLabels, label)
@@ -108,7 +114,7 @@ func (c *Council) RunFull(ctx context.Context, query string, councilTypeName str
 	}
 
 	metadata := Metadata{
-		CouncilType:       councilTypeName,
+		CouncilType:       ct.Name,
 		LabelToModel:      labelToModel,
 		AggregateRankings: rankedByModel,
 		ConsensusW:        consensusW,
