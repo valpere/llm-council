@@ -50,7 +50,7 @@ func main() {
 		),
 	}
 
-	client := openrouter.NewClient(cfg.OpenRouterAPIKey, cfg.LLMBaseURL, 120*time.Second)
+	client := openrouter.NewClient(cfg.OpenRouterAPIKey, cfg.LLMBaseURL, 120*time.Second, cfg.LLMAPIMaxRetries, logger)
 	runner := council.NewCouncil(client, registry, logger)
 
 	store, err := storage.NewStore(cfg.DataDir, logger)
