@@ -1,0 +1,62 @@
+[
+  {
+    "id": "ambig-01",
+    "category": "ambiguous",
+    "prompt": "How do I improve my React app?"
+  },
+  {
+    "id": "ambig-02",
+    "category": "ambiguous",
+    "prompt": "Should I use a microservice architecture?"
+  },
+  {
+    "id": "ambig-03",
+    "category": "ambiguous",
+    "prompt": "What's the best programming language?"
+  },
+  {
+    "id": "factual-01",
+    "category": "factual",
+    "prompt": "Who wrote 'Pride and Prejudice'?"
+  },
+  {
+    "id": "factual-02",
+    "category": "factual",
+    "prompt": "What is the boiling point of water at sea level in degrees Celsius?"
+  },
+  {
+    "id": "factual-03",
+    "category": "factual",
+    "prompt": "Name the four innermost planets of the solar system in order from the Sun."
+  },
+  {
+    "id": "code-01",
+    "category": "code",
+    "prompt": "Refactor this Go function for clarity, keeping behaviour identical:\n\nfunc f(n int) int {\n    var s int\n    for i := 0; i < n; i++ {\n        s = s + i\n    }\n    return s\n}"
+  },
+  {
+    "id": "code-02",
+    "category": "code",
+    "prompt": "What is wrong with this Go loop, and how would you fix it?\n\nfor i := 0; i <= len(slice); i++ {\n    fmt.Println(slice[i])\n}"
+  },
+  {
+    "id": "code-03",
+    "category": "code",
+    "prompt": "Write a Go function that reverses a UTF-8 string by runes (not bytes). Include a one-line comment explaining why byte-level reversal would be wrong."
+  },
+  {
+    "id": "reasoning-01",
+    "category": "reasoning",
+    "prompt": "If three workers can paint a house in 4 days, how many days will five workers take? Assume work scales linearly with worker count and explain your calculation in one sentence."
+  },
+  {
+    "id": "reasoning-02",
+    "category": "reasoning",
+    "prompt": "A train leaves Station A at 10:00 travelling at 50 mph. A second train leaves the same station at 11:00 travelling along the same route at 70 mph. At what time does the second train catch the first?"
+  },
+  {
+    "id": "summary-01",
+    "category": "summarisation",
+    "prompt": "Summarise the following paragraph in one sentence:\n\nThe mitochondrion is a double-membrane-bound organelle found in most eukaryotic cells. They are commonly between 0.75 and 3 micrometres in area but vary considerably in size and structure. Mitochondria generate most of the cell's supply of adenosine triphosphate (ATP), which is used as a source of chemical energy."
+  }
+]
