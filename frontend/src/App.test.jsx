@@ -4,7 +4,7 @@
 // tests mock the `./api` module entirely, then drive a synthetic event stream
 // through the `onEvent` callback and assert the resulting UI/prop state.
 
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 
@@ -244,10 +244,3 @@ describe('loadConversation propagates closed flag', () => {
   });
 });
 
-// ── act() guard for fail-fast on warnings ──────────────────────────────────
-
-// React Testing Library wraps render/userEvent in act for us; if a state
-// update slips outside act the test logs a warning. We do not assert on those
-// warnings here, but the imports above ensure act is in scope for any future
-// test that needs to wrap an asynchronous setState directly.
-void act;

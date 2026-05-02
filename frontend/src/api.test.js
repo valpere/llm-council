@@ -38,8 +38,12 @@ function streamResponse(chunks) {
 
 const enc = (s) => new TextEncoder().encode(s);
 
-beforeEach(() => {
+afterEach(() => {
+  // restoreAllMocks resets vi.fn() and vi.spyOn() but does NOT unstub globals.
+  // unstubAllGlobals undoes vi.stubGlobal('fetch', …) so the stub can't leak
+  // into the next test or test file.
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 // ── listConversations ──────────────────────────────────────────────────────
