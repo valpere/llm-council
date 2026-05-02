@@ -205,6 +205,105 @@ go test -race -count=1000 -v ./internal/council/ -run TestW_
 
 ---
 
+## 7. Evaluation Harness
+
+The four layers above answer the question "does my code do what I claim?".
+None of them answer the question "is my council producing better answers
+than a single model would?". The evaluation harness in `internal/eval/`
+plus the `cmd/eval` binary fill that gap.
+
+### What it does
+
+For each prompt in a fixed golden set, the harness runs:
+
+1. **Council pipeline** — `Runner.RunFull` against the configured council
+   type, capturing the chairman's final answer and the Stage 2 consensus W.
+2. **Single-model baseline** — `LLMClient.Complete` against one of the
+   council's models, given just the user prompt.
+3. **Pairwise judge** — a third model (distinct from the baseline) is shown
+   "Answer A" and "Answer B" in randomised order and asked which is better,
+   returning a JSON `{verdict, explanation}`.
+
+Verdicts are remapped from A/B back to council/baseline after parsing, and
+aggregated into a single line on stdout:
+
+```
+council won X/N · tied Y/N · baseline won Z/N · errors W/N
+```
+
+A `{meta, results}` JSON envelope is also written to disk, with the seed
+and input file SHA-256 echoed into `meta` so a flipped result can be
+replayed.
+
+### How to run
+
+```bash
+go run ./cmd/eval \
+    -input internal/eval/testdata/golden.json \
+    -out eval-results.json \
+    -baseline-model openai/gpt-4o-mini \
+    -council-type default
+```
+
+Optional flags:
+
+- `-judge-model <id>` — override the judge (defaults to the configured
+  chairman model). MUST differ from `-baseline-model`; the binary refuses
+  to start if they match, to avoid self-preference bias.
+- `-seed <int64>` — pin the A/B-order RNG so a flipped result is replayable.
+  Default is time-based, captured into output meta either way.
+
+### When to run
+
+Run **before** any change that could shift output quality:
+
+- Editing a stage prompt template (`internal/council/prompts.go`).
+- Changing default models or council strategy defaults.
+- Refactoring the deliberation pipeline.
+
+Compare the new run's summary line against the previous run's. A drop of
+more than ~20% in council wins on the same golden set is a regression
+signal worth blocking the change for.
+
+### When NOT to run
+
+The harness is **not** wired into CI. A single pass costs roughly $1–2 with
+the balanced model preset (≈132 LLM calls: 12 cases × 9 council calls per
+case + 12 baseline + 12 judge). CI runs it on every PR would cost dollars
+per merge — not worth it at this maturity. Run manually before
+quality-affecting merges.
+
+### Caveats
+
+- **Judge bias.** LLM-as-judge has well-known positional, verbosity, and
+  self-preference biases. Mitigations applied: A/B order is randomised
+  per case; the judge model must differ from the baseline; the system
+  prompt explicitly says "length is not a quality signal — prefer the
+  more correct and concise answer." Residual verbosity bias is
+  acknowledged: council answers tend to be longer by design.
+- **n = 12.** This harness is built to detect *large* regressions
+  (>20%). Detecting small drifts requires a much larger case set,
+  multi-judge majority voting, and statistical significance tests — all
+  explicitly out of scope.
+- **No golden-output assertion.** We never assert "the council says X for
+  case Y". The judge is the only signal.
+
+### Files
+
+| File | Role |
+|------|------|
+| `internal/eval/eval.go` | `Suite`, `Case`, `Result`, `Run` orchestrator |
+| `internal/eval/judge.go` | Pairwise LLM-as-judge using `council.LLMClient` |
+| `internal/eval/runner.go` | Per-case council + baseline drivers |
+| `internal/eval/report.go` | Aggregation + JSON envelope serialisation |
+| `internal/eval/testdata/golden.json` | 12 hand-crafted prompts |
+| `cmd/eval/main.go` | CLI binary |
+
+`eval-results*.json` is in `.gitignore` — local result files are not
+committed. Golden inputs ARE.
+
+---
+
 ## Related Documents
 
 - `docs/council-research-synthesis.md §8` — Go implementation patterns and interface design

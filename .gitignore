@@ -43,6 +43,10 @@ bin/
 
 data/
 
+# Eval harness — golden inputs ARE checked in (internal/eval/testdata/).
+# Result envelopes from running cmd/eval are local artefacts and are NOT.
+eval-results*.json
+
 # Self-learning pattern store (global gitignore has _* — explicitly opt in, then exclude raw logs)
 !_patterns/
 !_patterns/**

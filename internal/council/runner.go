@@ -14,9 +14,12 @@ import (
 
 var errNoChoices = errors.New("council: completion response contained no choices")
 
-// stripCodeFence removes markdown code fences that some models wrap around JSON.
+// StripCodeFence removes markdown code fences that some models wrap around JSON.
 // Handles ```json\n...\n``` and ```\n...\n``` patterns.
-func stripCodeFence(s string) string {
+//
+// Exported for use by the eval package, which talks to the same family of
+// fence-happy models when running its judge.
+func StripCodeFence(s string) string {
 	s = strings.TrimSpace(s)
 	for _, prefix := range []string{"```json", "```"} {
 		if strings.HasPrefix(s, prefix) {
@@ -215,7 +218,7 @@ func (c *Council) runStage2(ctx context.Context, query string, stage1 []StageOne
 			var parsed struct {
 				Rankings []string `json:"rankings"`
 			}
-			if err := json.Unmarshal([]byte(stripCodeFence(resp.Choices[0].Message.Content)), &parsed); err != nil {
+			if err := json.Unmarshal([]byte(StripCodeFence(resp.Choices[0].Message.Content)), &parsed); err != nil {
 				if c.logger != nil {
 					c.logger.Warn("stage2: parse failure", slog.String("reviewer", s1.Label), slog.Any("error", err))
 				}
@@ -361,7 +364,7 @@ func (c *Council) runStage0Generators(ctx context.Context, prompt []ChatMessage,
 					Text string `json:"text"`
 				} `json:"questions"`
 			}
-			if err := json.Unmarshal([]byte(stripCodeFence(resp.Choices[0].Message.Content)), &parsed); err != nil {
+			if err := json.Unmarshal([]byte(StripCodeFence(resp.Choices[0].Message.Content)), &parsed); err != nil {
 				if c.logger != nil {
 					c.logger.Warn("stage0: generator parse failure", "model", model, "error", err)
 				}
@@ -398,7 +401,7 @@ func (c *Council) runStage0Chairman(ctx context.Context, query string, candidate
 		return nil, true, fmt.Errorf("stage0 chairman: %w", err)
 	}
 
-	content := stripCodeFence(resp.Choices[0].Message.Content)
+	content := StripCodeFence(resp.Choices[0].Message.Content)
 	var parsed struct {
 		Questions []ClarificationQuestion `json:"questions"`
 		Enough    bool                    `json:"enough"`
