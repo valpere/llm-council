@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -22,14 +23,18 @@ func testClient(apiKey string, srv *httptest.Server) *Client {
 }
 
 // testClientWithRetries returns a Client pointed at srv with the given API key
-// and retry budget. Logger is silenced (Discard).
+// and retry budget. Logger is silenced (Discard). Backoff knobs are set to
+// fast defaults (1ms base, 60s cap) so retry tests run quickly without
+// mutating package globals — each test gets its own isolated Client.
 func testClientWithRetries(apiKey string, srv *httptest.Server, retries int) *Client {
 	return &Client{
-		apiKey:     apiKey,
-		baseURL:    srv.URL,
-		http:       srv.Client(),
-		maxRetries: retries,
-		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		apiKey:                       apiKey,
+		baseURL:                      srv.URL,
+		http:                         srv.Client(),
+		maxRetries:                   retries,
+		logger:                       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		retryBaseDelay:               1 * time.Millisecond,
+		maxCumulativeBackoffDuration: defaultMaxCumulativeBackoffDuration,
 	}
 }
 
@@ -266,25 +271,10 @@ func TestNewClient_NegativeRetriesClampedToZero(t *testing.T) {
 }
 
 // ── Retry tests ────────────────────────────────────────────────────────────
-
-// withFastBackoff replaces retryBaseDelay with 1ms for the duration of t and
-// restores it on cleanup. Lets retry tests run in milliseconds rather than
-// seconds.
-func withFastBackoff(t *testing.T) {
-	t.Helper()
-	orig := retryBaseDelay
-	retryBaseDelay = 1 * time.Millisecond
-	t.Cleanup(func() { retryBaseDelay = orig })
-}
-
-// withCumulativeBackoffCap temporarily lowers maxCumulativeBackoffDuration so
-// the cap test can fire without sleeping for a real minute.
-func withCumulativeBackoffCap(t *testing.T, d time.Duration) {
-	t.Helper()
-	orig := maxCumulativeBackoffDuration
-	maxCumulativeBackoffDuration = d
-	t.Cleanup(func() { maxCumulativeBackoffDuration = orig })
-}
+//
+// These tests configure backoff knobs on a per-Client basis (set on the
+// struct returned by testClientWithRetries), not via package-level globals,
+// so each case is fully isolated and safe to run in parallel.
 
 // successfulCompletion returns a minimal-shape JSON OpenAI-compat success body.
 func successfulCompletion(content string) any {
@@ -302,8 +292,6 @@ func successfulCompletion(content string) any {
 }
 
 func TestComplete_RetryOn503ThenSuccess(t *testing.T) {
-	withFastBackoff(t)
-
 	var counter int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&counter, 1)
@@ -332,8 +320,6 @@ func TestComplete_RetryOn503ThenSuccess(t *testing.T) {
 }
 
 func TestComplete_RetryOn429WithRetryAfter(t *testing.T) {
-	withFastBackoff(t)
-
 	var (
 		counter int32
 		gap     time.Duration
@@ -369,8 +355,6 @@ func TestComplete_RetryOn429WithRetryAfter(t *testing.T) {
 }
 
 func TestComplete_RetryOnTimeout(t *testing.T) {
-	withFastBackoff(t)
-
 	var counter int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := atomic.AddInt32(&counter, 1)
@@ -398,8 +382,6 @@ func TestComplete_RetryOnTimeout(t *testing.T) {
 }
 
 func TestComplete_NoRetryOn401(t *testing.T) {
-	withFastBackoff(t)
-
 	var counter int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&counter, 1)
@@ -426,8 +408,6 @@ func TestComplete_NoRetryOn401(t *testing.T) {
 }
 
 func TestComplete_NoRetryOn200(t *testing.T) {
-	withFastBackoff(t)
-
 	var counter int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&counter, 1)
@@ -448,8 +428,6 @@ func TestComplete_NoRetryOn200(t *testing.T) {
 }
 
 func TestComplete_RetriesExhausted(t *testing.T) {
-	withFastBackoff(t)
-
 	var counter int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&counter, 1)
@@ -475,17 +453,14 @@ func TestComplete_RetriesExhausted(t *testing.T) {
 }
 
 func TestComplete_ContextCancelDuringBackoff(t *testing.T) {
-	// Use a longer base delay so cancellation can interrupt the sleep.
-	orig := retryBaseDelay
-	retryBaseDelay = 5 * time.Second
-	t.Cleanup(func() { retryBaseDelay = orig })
-
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
 
 	c := testClientWithRetries("key", srv, 3)
+	// Use a long base delay so cancellation can interrupt the sleep.
+	c.retryBaseDelay = 5 * time.Second
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cancel after the first 503 response, while we're sleeping.
@@ -510,9 +485,6 @@ func TestComplete_ContextCancelDuringBackoff(t *testing.T) {
 }
 
 func TestComplete_CumulativeBackoffCap(t *testing.T) {
-	withFastBackoff(t)
-	withCumulativeBackoffCap(t, 1500*time.Millisecond)
-
 	var counter int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&counter, 1)
@@ -522,6 +494,7 @@ func TestComplete_CumulativeBackoffCap(t *testing.T) {
 	defer srv.Close()
 
 	c := testClientWithRetries("key", srv, 5) // generous budget; cap should fire first
+	c.maxCumulativeBackoffDuration = 1500 * time.Millisecond
 	start := time.Now()
 	_, err := c.Complete(context.Background(), council.CompletionRequest{
 		Model:    "x",
@@ -552,11 +525,11 @@ func TestParseRetryAfter(t *testing.T) {
 		in   string
 		want time.Duration
 	}{
-		{"empty", "", 0},
+		{"empty returns absent", "", retryAfterAbsent},
 		{"valid seconds", "5", 5 * time.Second},
-		{"zero seconds", "0", 0},
-		{"negative seconds", "-3", 0},
-		{"invalid", "soon", 0},
+		{"zero seconds means retry-immediately", "0", 0}, // RFC 7231 — distinct from absent
+		{"negative seconds returns absent", "-3", retryAfterAbsent},
+		{"invalid returns absent", "soon", retryAfterAbsent},
 		{"capped at maxRetryAfter", "3600", maxRetryAfter},
 	}
 	for _, tc := range tests {
@@ -566,6 +539,69 @@ func TestParseRetryAfter(t *testing.T) {
 				t.Errorf("parseRetryAfter(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
+	}
+
+	// HTTP-date forms — relative to time.Now(), so use a tolerance.
+	t.Run("future HTTP-date ~5s", func(t *testing.T) {
+		future := time.Now().Add(5 * time.Second).UTC().Format(http.TimeFormat)
+		got := parseRetryAfter(future)
+		if got < 3*time.Second || got > 5*time.Second {
+			t.Errorf("parseRetryAfter(%q) = %v, want ~5s", future, got)
+		}
+	})
+	t.Run("past HTTP-date returns absent", func(t *testing.T) {
+		past := time.Now().Add(-1 * time.Hour).UTC().Format(http.TimeFormat)
+		if got := parseRetryAfter(past); got != retryAfterAbsent {
+			t.Errorf("parseRetryAfter(%q) = %v, want retryAfterAbsent", past, got)
+		}
+	})
+	t.Run("future HTTP-date capped at maxRetryAfter", func(t *testing.T) {
+		far := time.Now().Add(1 * time.Hour).UTC().Format(http.TimeFormat)
+		if got := parseRetryAfter(far); got != maxRetryAfter {
+			t.Errorf("parseRetryAfter(%q) = %v, want %v (capped)", far, got, maxRetryAfter)
+		}
+	})
+}
+
+// TestComplete_RetryAfterZeroHonored verifies an explicit "Retry-After: 0"
+// header is honored as "retry immediately" and not treated as absent.
+func TestComplete_RetryAfterZeroHonored(t *testing.T) {
+	var (
+		counter int32
+		gap     time.Duration
+		first   time.Time
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&counter, 1)
+		if n == 1 {
+			first = time.Now()
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		gap = time.Since(first)
+		writeJSON(w, successfulCompletion("ok"))
+	}))
+	defer srv.Close()
+
+	// Set a relatively long retryBaseDelay so we can detect that Retry-After: 0
+	// short-circuits the schedule rather than falling back to it.
+	c := testClientWithRetries("key", srv, 2)
+	c.retryBaseDelay = 250 * time.Millisecond
+
+	if _, err := c.Complete(context.Background(), council.CompletionRequest{
+		Model:    "x",
+		Messages: []council.ChatMessage{{Role: "user", Content: "hi"}},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := atomic.LoadInt32(&counter); got != 2 {
+		t.Errorf("call count: got %d, want 2", got)
+	}
+	// With Retry-After: 0 honored, the gap should be near-zero (well below
+	// retryBaseDelay). Allow generous slack for goroutine scheduling.
+	if gap > 100*time.Millisecond {
+		t.Errorf("gap %v; expected ~0 because Retry-After: 0 means retry immediately", gap)
 	}
 }
 
@@ -582,6 +618,8 @@ func TestIsRetriableNetErr(t *testing.T) {
 		{"deadline exceeded", context.DeadlineExceeded, true},
 		{"io.EOF", io.EOF, true},
 		{"io.ErrUnexpectedEOF", io.ErrUnexpectedEOF, true},
+		{"syscall.ECONNRESET", syscall.ECONNRESET, true},
+		{"syscall.EPIPE", syscall.EPIPE, true},
 		{"random error", errors.New("nope"), false},
 	}
 	for _, tc := range tests {

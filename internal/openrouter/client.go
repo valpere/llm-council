@@ -22,17 +22,15 @@ const (
 	defaultURL    = "https://openrouter.ai/api/v1/chat/completions"
 	maxBodyBytes  = 4 * 1024 * 1024  // 4 MiB cap on response bodies
 	maxRetryAfter = 30 * time.Second // ceiling applied to Retry-After header values
+
+	defaultRetryBaseDelay              = 500 * time.Millisecond
+	defaultMaxCumulativeBackoffDuration = 60 * time.Second
 )
 
-// retryBaseDelay is the first attempt's nominal backoff. Exposed as a package
-// variable so tests can shrink it; production uses 500 ms.
-//
-// maxCumulativeBackoffDuration caps the total time spent sleeping across all
-// retry attempts in a single Complete call. Also a variable for testability.
-var (
-	retryBaseDelay               = 500 * time.Millisecond
-	maxCumulativeBackoffDuration = 60 * time.Second
-)
+// retryAfterAbsent is the sentinel returned by parseRetryAfter when no usable
+// Retry-After value is present. A genuine "Retry-After: 0" maps to 0
+// (retry immediately), distinct from absent.
+const retryAfterAbsent time.Duration = -1
 
 // APIError is returned when OpenRouter responds with a non-200 status code.
 type APIError struct {
@@ -51,6 +49,15 @@ type Client struct {
 	http       *http.Client
 	maxRetries int          // total retries (1 initial attempt + maxRetries retries)
 	logger     *slog.Logger // never nil — NewClient substitutes slog.Default()
+
+	// retryBaseDelay is the first attempt's nominal backoff. Per-Client so tests
+	// can shrink it without mutating package-level state and breaking parallel runs.
+	// Production initialises this to defaultRetryBaseDelay.
+	retryBaseDelay time.Duration
+
+	// maxCumulativeBackoffDuration caps the total time spent sleeping across
+	// retry attempts in a single Complete call. Per-Client for the same reason.
+	maxCumulativeBackoffDuration time.Duration
 }
 
 // NewClient creates a Client with the given API key, base URL, HTTP timeout,
@@ -68,11 +75,13 @@ func NewClient(apiKey, baseURL string, timeout time.Duration, maxRetries int, lo
 		maxRetries = 0
 	}
 	return &Client{
-		apiKey:     apiKey,
-		baseURL:    baseURL,
-		http:       &http.Client{Timeout: timeout},
-		maxRetries: maxRetries,
-		logger:     logger,
+		apiKey:                       apiKey,
+		baseURL:                      baseURL,
+		http:                         &http.Client{Timeout: timeout},
+		maxRetries:                   maxRetries,
+		logger:                       logger,
+		retryBaseDelay:               defaultRetryBaseDelay,
+		maxCumulativeBackoffDuration: defaultMaxCumulativeBackoffDuration,
 	}
 }
 
@@ -80,10 +89,10 @@ func NewClient(apiKey, baseURL string, timeout time.Duration, maxRetries int, lo
 var _ council.LLMClient = (*Client)(nil)
 
 // Complete POSTs a chat completion request to OpenRouter and returns the response.
-// On transient failures (5xx, 429, network blips), it retries with exponential
-// backoff and ±25% jitter, honoring Retry-After headers and a cumulative
-// 60 s sleep budget. Returns *APIError on non-200 responses after retries are
-// exhausted.
+// On transient failures (HTTP 429/502/503/504, network blips), it retries with
+// exponential backoff and ±25% jitter, honoring Retry-After headers (capped at
+// 30 s) and a cumulative 60 s sleep budget. Returns *APIError on non-200
+// responses after retries are exhausted.
 func (c *Client) Complete(ctx context.Context, req council.CompletionRequest) (council.CompletionResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -109,7 +118,7 @@ func (c *Client) Complete(ctx context.Context, req council.CompletionRequest) (c
 			// in finalErr (and resp on success) for us to surface.
 			if finalErr != nil {
 				if attempt > 0 {
-					c.logger.Info("openrouter: retries exhausted",
+					c.logger.Info("openrouter: failed after retries",
 						"attempts", attempt+1, "final_error", finalErr)
 				}
 				return council.CompletionResponse{}, finalErr
@@ -123,13 +132,18 @@ func (c *Client) Complete(ctx context.Context, req council.CompletionRequest) (c
 		lastErr = finalErr
 
 		if attempt >= c.maxRetries {
+			// Defence in depth: if the user just cancelled, prefer their error
+			// over the last attempt's error.
+			if cerr := ctx.Err(); cerr != nil {
+				return council.CompletionResponse{}, cerr
+			}
 			c.logger.Info("openrouter: retries exhausted",
 				"attempts", attempt+1, "final_error", lastErr)
 			return council.CompletionResponse{}, lastErr
 		}
 
-		delay := backoffDelay(attempt, retryAfter)
-		if cumulativeBackoff+delay > maxCumulativeBackoffDuration {
+		delay := c.backoffDelay(attempt, retryAfter)
+		if cumulativeBackoff+delay > c.maxCumulativeBackoffDuration {
 			c.logger.Info("openrouter: cumulative backoff cap reached",
 				"cumulative_ms", cumulativeBackoff.Milliseconds(),
 				"final_error", lastErr)
@@ -170,52 +184,61 @@ func (c *Client) doAttempt(ctx context.Context, body []byte) (*http.Response, er
 }
 
 // classifyAttempt inspects the result of doAttempt and decides whether to
-// retry. On a retry decision, it drains and closes the response body so the
-// connection returns to the keep-alive pool. On a non-retry decision, it
-// either returns a final error (with the body read for a non-retryable status)
-// or leaves resp populated with the body still readable (for the success path,
-// where the caller will decode).
+// retry. On a retryable status it reads (then drains and closes) the body so
+// that the final *APIError can carry the body text if retries are exhausted.
+// On a non-retryable status it surfaces *APIError with whatever body bytes were
+// readable — partial body is preferable to retrying a non-retryable status
+// just because the body read hiccupped.
 func (c *Client) classifyAttempt(resp *http.Response, err error) (shouldRetry bool, retryAfter time.Duration, finalErr error) {
 	// Network-level error path.
 	if err != nil {
 		if isRetriableNetErr(err) {
-			return true, 0, err
+			return true, retryAfterAbsent, err
 		}
-		return false, 0, err
+		return false, retryAfterAbsent, err
 	}
 
 	// HTTP-level path.
 	if isRetriableStatus(resp.StatusCode) {
 		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
-		// Read the body up to maxBodyBytes so it can be surfaced if retries
-		// are exhausted (or maxRetries=0). Then drain + close any tail so the
-		// connection returns to the keep-alive pool — for typical OpenRouter
-		// error JSON the tail will be empty.
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
+
+		// If the body read was cancelled by the user, propagate that immediately
+		// — explicit cancellation is never retried, even on a retryable status.
+		if errors.Is(readErr, context.Canceled) {
+			return false, retryAfterAbsent, readErr
+		}
+
 		return true, retryAfter, &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
-	// Non-retryable status (4xx other than 429, or 200). Read body so we can
-	// either return the *APIError with body, or hand off to decodeBody on 200.
+	// Non-retryable status (4xx other than 429, 5xx other than 502/503/504, or 200).
 	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	_ = resp.Body.Close()
-	if readErr != nil {
-		// A failed body read is itself a candidate for retry (ErrUnexpectedEOF, EOF).
-		if isRetriableNetErr(readErr) {
-			return true, 0, fmt.Errorf("read response: %w", readErr)
-		}
-		return false, 0, fmt.Errorf("read response: %w", readErr)
-	}
 
 	if resp.StatusCode != http.StatusOK {
-		return false, 0, &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
+		// Surface *APIError with whatever body was readable. A partial read on a
+		// non-retryable status code does not justify retrying — the status code
+		// itself was already non-retryable.
+		return false, retryAfterAbsent, &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
+	}
+
+	// Status 200. A body read failure is the actual problem.
+	if readErr != nil {
+		if errors.Is(readErr, context.Canceled) {
+			return false, retryAfterAbsent, readErr
+		}
+		if isRetriableNetErr(readErr) {
+			return true, retryAfterAbsent, fmt.Errorf("read response: %w", readErr)
+		}
+		return false, retryAfterAbsent, fmt.Errorf("read response: %w", readErr)
 	}
 
 	// Success — stash the body on resp so decodeBody can read it without re-reading.
 	resp.Body = io.NopCloser(bytes.NewReader(respBody))
-	return false, 0, nil
+	return false, retryAfterAbsent, nil
 }
 
 // decodeBody parses a successful response body into a CompletionResponse.
@@ -232,7 +255,9 @@ func (c *Client) decodeBody(resp *http.Response) (council.CompletionResponse, er
 }
 
 // isRetriableStatus returns true for HTTP status codes worth retrying:
-// 429 (rate limit), 502, 503, 504 (transient upstream errors).
+// 429 (rate limit), 502/503/504 (transient upstream errors). HTTP 500 is
+// deliberately excluded — it often indicates a deterministic upstream bug
+// rather than a transient hiccup.
 func isRetriableStatus(code int) bool {
 	switch code {
 	case http.StatusTooManyRequests,
@@ -278,16 +303,18 @@ func isRetriableNetErr(err error) bool {
 }
 
 // parseRetryAfter parses an HTTP Retry-After header. Supports both
-// delta-seconds (integer) and HTTP-date forms. Returns 0 on parse failure or
-// out-of-range values; caller falls back to the schedule. Caps at maxRetryAfter
-// (30 s) to prevent the gateway from forcing arbitrarily long client waits.
+// delta-seconds (integer) and HTTP-date forms. Returns retryAfterAbsent (-1)
+// when no usable value is present so callers can distinguish "no header" from
+// an explicit "Retry-After: 0" (= retry immediately, RFC 7231). Values are
+// capped at maxRetryAfter to prevent the gateway from forcing arbitrarily
+// long client waits.
 func parseRetryAfter(h string) time.Duration {
 	if h == "" {
-		return 0
+		return retryAfterAbsent
 	}
 	if secs, err := strconv.Atoi(h); err == nil {
-		if secs <= 0 {
-			return 0
+		if secs < 0 {
+			return retryAfterAbsent
 		}
 		d := time.Duration(secs) * time.Second
 		if d > maxRetryAfter {
@@ -297,30 +324,31 @@ func parseRetryAfter(h string) time.Duration {
 	}
 	if t, err := http.ParseTime(h); err == nil {
 		d := time.Until(t)
-		if d <= 0 {
-			return 0
+		if d < 0 {
+			return retryAfterAbsent
 		}
 		if d > maxRetryAfter {
 			return maxRetryAfter
 		}
 		return d
 	}
-	return 0
+	return retryAfterAbsent
 }
 
-// backoffDelay returns the next sleep duration. If retryAfter > 0 (already
-// capped), it's used directly. Otherwise: retryBaseDelay * 3^attempt with
-// ±25% jitter via math/rand/v2 (Go 1.22+ — no global lock).
-func backoffDelay(attempt int, retryAfter time.Duration) time.Duration {
-	if retryAfter > 0 {
+// backoffDelay returns the next sleep duration. If retryAfter is present
+// (>= 0), it is used directly — including 0 to honour an explicit
+// "Retry-After: 0" (retry immediately). Otherwise: c.retryBaseDelay * 3^attempt
+// with ±25% jitter via math/rand/v2 (Go 1.22+ — no global lock).
+func (c *Client) backoffDelay(attempt int, retryAfter time.Duration) time.Duration {
+	if retryAfter >= 0 {
 		return retryAfter
 	}
-	base := retryBaseDelay
+	base := c.retryBaseDelay
 	for range attempt {
 		base *= 3
 	}
 	if base <= 0 {
-		return retryBaseDelay
+		return c.retryBaseDelay
 	}
 	// Jitter range: [-base/4, +base/4].
 	jitter := time.Duration(rand.Int64N(int64(base)/2)) - base/4

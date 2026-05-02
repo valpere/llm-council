@@ -101,3 +101,40 @@ func TestLoad_LLMBaseURL_NotAURL(t *testing.T) {
 		t.Fatal("expected error for non-URL value, got nil")
 	}
 }
+
+// ── TestLoad_LLMAPIMaxRetries ─────────────────────────────────────────────
+
+func TestLoad_LLMAPIMaxRetries(t *testing.T) {
+	tests := []struct {
+		name string
+		// raw is the env value to set; if empty the var is unset.
+		raw  string
+		set  bool
+		want int
+	}{
+		{"unset uses default", "", false, 2},
+		{"valid 0 disables retries", "0", true, 0},
+		{"valid 1", "1", true, 1},
+		{"valid 5", "5", true, 5},
+		{"empty string uses default", "", true, 2},
+		{"negative falls back to default with warn", "-3", true, 2},
+		{"non-numeric falls back to default with warn", "loads", true, 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			baseEnv(t)
+			if tc.set {
+				setenv(t, "LLM_API_MAX_RETRIES", tc.raw)
+			} else {
+				unsetenv(t, "LLM_API_MAX_RETRIES")
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.LLMAPIMaxRetries != tc.want {
+				t.Errorf("LLMAPIMaxRetries: got %d, want %d", cfg.LLMAPIMaxRetries, tc.want)
+			}
+		})
+	}
+}
