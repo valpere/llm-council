@@ -712,7 +712,7 @@ Metadata{
 }
 ```
 
-`Stage2CompleteData.Results` is `nil` (serialises as `null` in the JSON `data` field).
+`Stage2CompleteData.Results` is an empty slice (serialises as `[]` in the JSON `data` field) — never `null` — so SSE clients can safely iterate without a nil check.
 
 ### Stage 3 — chairman synthesis
 

@@ -44,7 +44,7 @@ func (c *Council) runRoleBased(ctx context.Context, query string, ct CouncilType
 		ConsensusW:        1.0, // roles are complementary, not competing
 	}
 	if onEvent != nil {
-		onEvent("stage2_complete", Stage2CompleteData{Results: nil, Metadata: meta})
+		onEvent("stage2_complete", Stage2CompleteData{Results: []StageTwoResult{}, Metadata: meta})
 	}
 
 	// Stage 3: chairman synthesis.

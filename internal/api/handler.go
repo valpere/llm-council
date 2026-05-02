@@ -859,6 +859,11 @@ func (h *Handler) sendReviewStream(w http.ResponseWriter, r *http.Request) {
 		sendErrorSSE("internal server error")
 		return
 	}
+
+	// Spec: { "type": "complete" } with no payload. Frontend SSE handlers rely on
+	// this terminal event to clear loading state. Mirrors /message/stream.
+	fmt.Fprintf(w, "data: {\"type\":\"complete\"}\n\n")
+	flusher.Flush()
 }
 
 // handleRunError translates RunFull errors to HTTP responses.

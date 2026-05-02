@@ -116,7 +116,7 @@ func TestSendReviewStream_EmitsSSEEvents(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"stage1_complete", "stage2_complete", "stage3_complete"} {
+	for _, want := range []string{"stage1_complete", "stage2_complete", "stage3_complete", `"type":"complete"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("SSE body missing event %q", want)
 		}
