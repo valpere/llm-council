@@ -31,6 +31,11 @@ type Config struct {
 	ClarificationMaxRounds            int
 	ClarificationMaxTotalQuestions    int
 	ClarificationMaxQuestionsPerRound int
+
+	// LLMAPIMaxRetries is the number of retries the OpenRouter client attempts
+	// on transient failures (HTTP 429/502/503/504, network timeouts, EOFs).
+	// 0 disables retries. Default: 2 (3 total attempts including the initial).
+	LLMAPIMaxRetries int
 }
 
 // Load reads configuration from environment variables and returns an error if
@@ -146,6 +151,16 @@ func Load() (*Config, error) {
 		}
 	}
 
+	llmAPIMaxRetries := 2
+	if raw := os.Getenv("LLM_API_MAX_RETRIES"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v >= 0 {
+			llmAPIMaxRetries = v
+		} else {
+			slog.Warn("LLM_API_MAX_RETRIES is invalid; using fallback value",
+				"value", raw, "error", err, "fallback", llmAPIMaxRetries)
+		}
+	}
+
 	return &Config{
 		OpenRouterAPIKey:            apiKey,
 		LLMBaseURL:                  llmBaseURL,
@@ -161,5 +176,7 @@ func Load() (*Config, error) {
 		ClarificationMaxRounds:            clarificationMaxRounds,
 		ClarificationMaxTotalQuestions:    clarificationMaxTotalQuestions,
 		ClarificationMaxQuestionsPerRound: clarificationMaxQuestionsPerRound,
+
+		LLMAPIMaxRetries: llmAPIMaxRetries,
 	}, nil
 }
