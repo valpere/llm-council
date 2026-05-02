@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -161,11 +162,13 @@ func run() error {
 }
 
 // knownTypes returns the keys of registry sorted lexicographically — used
-// only for diagnostic error messages.
+// only for diagnostic error messages, but determinism matters here so a
+// failing CI run always blames the same line of "expected: [a b c]" output.
 func knownTypes(registry map[string]council.CouncilType) []string {
 	keys := make([]string, 0, len(registry))
 	for k := range registry {
 		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 	return keys
 }

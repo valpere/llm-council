@@ -397,7 +397,7 @@ func (r *runnerFailingOnCase) RunFull(ctx context.Context, prompt string, counci
 func findSeedWithCouncilFirst(t *testing.T, want bool) int64 {
 	t.Helper()
 	for s := int64(1); s < 1000; s++ {
-		if courseFirstForSeed(s) == want {
+		if councilFirstForSeed(s) == want {
 			return s
 		}
 	}
@@ -405,9 +405,9 @@ func findSeedWithCouncilFirst(t *testing.T, want bool) int64 {
 	return 0
 }
 
-// courseFirstForSeed mirrors the exact RNG construction used by Run so the
+// councilFirstForSeed mirrors the exact RNG construction used by Run so the
 // test's expectation matches production behaviour.
-func courseFirstForSeed(seed int64) bool {
+func councilFirstForSeed(seed int64) bool {
 	rng := rand.New(rand.NewPCG(uint64(seed), 0))
 	return rng.IntN(2) == 0
 }
