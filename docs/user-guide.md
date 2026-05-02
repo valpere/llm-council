@@ -55,7 +55,7 @@ All configuration is via environment variables. The server reads from `.env` at 
 | `PORT` | `8001` | TCP port the HTTP server listens on. |
 | `DATA_DIR` | `data/conversations` | Directory where conversation JSON files are stored. Relative to the working directory. |
 | `LLM_API_BASE_URL` | *(optional)* | Override the OpenRouter API base URL. Must be an absolute `http`/`https` URL. Useful for pointing at a compatible local proxy. |
-| `CLARIFICATION_MAX_ROUNDS` | `0` | Max clarification rounds before Stage 1. `0` disables Stage 0 entirely — the API behaves identically to before Stage 0. |
+| `CLARIFICATION_MAX_ROUNDS` | `2` | Max clarification rounds before Stage 1. Set to `0` to disable Stage 0 entirely — the API then behaves identically to before Stage 0. |
 | `CLARIFICATION_MAX_TOTAL_QUESTIONS` | `5` | Hard cap on questions accumulated across all rounds in one query. |
 | `CLARIFICATION_MAX_QUESTIONS_PER_ROUND` | `3` | Chairman trims to this many questions per round. |
 
@@ -226,7 +226,7 @@ The streaming endpoint emits [Server-Sent Events](https://developer.mozilla.org/
 ← data: {"type":"complete"}
 ```
 
-The `stage0_*` events are only emitted when `CLARIFICATION_MAX_ROUNDS > 0`. With the default (`CLARIFICATION_MAX_ROUNDS=0`) the sequence starts at `stage1_complete`.
+The `stage0_*` events are only emitted when `CLARIFICATION_MAX_ROUNDS > 0`, which is the case under the default (`CLARIFICATION_MAX_ROUNDS=2`). Set the variable to `0` to skip Stage 0 entirely; the sequence then starts at `stage1_complete`.
 
 There are no `*_start` events — the client receives each stage result only when it is fully complete.
 
@@ -396,11 +396,12 @@ Once the loop ends, the original query plus all Q/A history is passed to Stage 1
 
 | Setting | Recommendation |
 |---------|---------------|
-| `CLARIFICATION_MAX_ROUNDS=0` | Disabled (default) — API identical to today |
+| `CLARIFICATION_MAX_ROUNDS=0` | Disabled — Stage 0 skipped entirely, API behaves as before Stage 0 was added |
 | `CLARIFICATION_MAX_ROUNDS=1` | Single clarification round before generation |
-| `CLARIFICATION_MAX_ROUNDS=2-3` | Multi-round; good for complex or ambiguous queries |
+| `CLARIFICATION_MAX_ROUNDS=2` | Default — multi-round; good for complex or ambiguous queries |
+| `CLARIFICATION_MAX_ROUNDS=3` | Maximum useful depth — diminishing returns past this point |
 
-Set `CLARIFICATION_MAX_ROUNDS=0` (default) to keep today's behaviour with no API changes.
+Set `CLARIFICATION_MAX_ROUNDS=0` to disable Stage 0 and keep the pre-Stage-0 behaviour with no API changes.
 
 ---
 

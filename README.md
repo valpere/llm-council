@@ -166,7 +166,8 @@ make fr-lint    # ESLint
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/` | Health check — returns `{"status":"ok","service":"LLM Council API"}` |
+| `GET` | `/health/live` | Liveness probe — always returns 200 with an empty body if the process is up |
+| `GET` | `/health/ready` | Readiness probe — always returns 200 with an empty body (no dependency check today) |
 | `GET` | `/api/conversations` | List all conversations |
 | `POST` | `/api/conversations` | Create a new conversation |
 | `GET` | `/api/conversations/{id}` | Get a conversation with all messages |
