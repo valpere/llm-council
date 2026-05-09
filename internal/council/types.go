@@ -122,7 +122,16 @@ type Metadata struct {
 // Stage2CompleteData is the payload emitted by Runner for the "stage2_complete" event.
 // It bundles peer-review results with the computed aggregate metadata so callers
 // (e.g. the SSE handler) can surface both in one event.
+//
+// Kind discriminates the strategy-specific payload shape. Today's two implemented
+// values are "peer_ranking" (PeerReview) and "role_stub" (RoleBased). Five more
+// are reserved for planned strategies; see docs/strategies.md for their schemas.
+//
+// Round is reserved for future multi-round strategies (MultiAgentDebate, Delphi).
+// Today both implemented strategies emit a single stage2_complete with Round=0.
 type Stage2CompleteData struct {
+	Kind     string           `json:"kind"`
+	Round    int              `json:"round,omitempty"`
 	Results  []StageTwoResult `json:"results"`
 	Metadata Metadata         `json:"metadata"`
 }

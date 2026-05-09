@@ -564,6 +564,7 @@ func TestSendMessageStream(t *testing.T) {
 						{Label: "Response A", Content: "Go is a compiled language"},
 					})
 					onEvent("stage2_complete", council.Stage2CompleteData{
+						Kind: "peer_ranking",
 						Results: []council.StageTwoResult{
 							{ReviewerLabel: "Response A", Rankings: []string{"Response A"}},
 						},
@@ -600,25 +601,41 @@ func TestSendMessageStream(t *testing.T) {
 					t.Errorf("last event: got %v, want 'complete'", types)
 				}
 
-				// stage2_complete must have metadata as a TOP-LEVEL field per the
-				// streaming spec: { "type": "stage2_complete", "data": [...], "metadata": {...} }
+				// stage2_complete must have kind + metadata as TOP-LEVEL fields per the
+				// streaming spec: { "type": "stage2_complete", "kind": "...", "data": [...], "metadata": {...}, "round"?: N }
 				for _, line := range strings.Split(body, "\n") {
 					if !strings.HasPrefix(line, "data: ") {
 						continue
 					}
+					raw := []byte(line[6:])
+					// First-pass: typed unmarshal for value assertions.
 					var env struct {
-						Type     string               `json:"type"`
+						Type     string                   `json:"type"`
+						Kind     string                   `json:"kind"`
 						Data     []council.StageTwoResult `json:"data"`
-						Metadata council.Metadata     `json:"metadata"`
+						Metadata council.Metadata         `json:"metadata"`
 					}
-					if err := json.Unmarshal([]byte(line[6:]), &env); err != nil || env.Type != "stage2_complete" {
+					if err := json.Unmarshal(raw, &env); err != nil || env.Type != "stage2_complete" {
 						continue
+					}
+					if env.Kind != "peer_ranking" {
+						t.Errorf("kind: got %q, want %q", env.Kind, "peer_ranking")
 					}
 					if env.Metadata.ConsensusW != 0.9 {
 						t.Errorf("consensus_w: got %f, want 0.9", env.Metadata.ConsensusW)
 					}
 					if env.Metadata.LabelToModel["Response A"] != "openai/gpt-4o" {
 						t.Errorf("label_to_model: got %v", env.Metadata.LabelToModel)
+					}
+					// Second-pass: raw key inspection — `round` must be ABSENT when zero
+					// (omitempty), not present-but-zero. A typed int unmarshal cannot
+					// distinguish absence from explicit zero, so check the key directly.
+					var keys map[string]json.RawMessage
+					if err := json.Unmarshal(raw, &keys); err != nil {
+						t.Fatalf("re-unmarshal as map: %v", err)
+					}
+					if _, present := keys["round"]; present {
+						t.Errorf("round: must be omitted when zero (omitempty), but key was present in JSON: %s", string(raw))
 					}
 					break
 				}

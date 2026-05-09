@@ -124,7 +124,7 @@ func (c *Council) runPeerReview(ctx context.Context, query string, ct CouncilTyp
 	}
 
 	if onEvent != nil {
-		onEvent("stage2_complete", Stage2CompleteData{Results: stage2Results, Metadata: metadata})
+		onEvent("stage2_complete", Stage2CompleteData{Kind: "peer_ranking", Results: stage2Results, Metadata: metadata})
 	}
 
 	// Stage 3 — Chairman synthesis.

@@ -148,6 +148,12 @@ func TestRunRoleBased_Stage2CompleteData_HasLabelToModel(t *testing.T) {
 	if !ok {
 		t.Fatalf("stage2_complete data must be Stage2CompleteData, got %T", stage2Data)
 	}
+	if d.Kind != "role_stub" {
+		t.Errorf("Kind: got %q, want %q", d.Kind, "role_stub")
+	}
+	if d.Round != 0 {
+		t.Errorf("Round: got %d, want 0", d.Round)
+	}
 	if d.Metadata.LabelToModel == nil {
 		t.Fatal("LabelToModel must not be nil")
 	}
