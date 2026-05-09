@@ -10,6 +10,9 @@
 
 set -euo pipefail
 
+# Ensure claude/gh/jq are reachable when invoked from cron or other minimal env
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPORTS_DIR="$SCRIPT_DIR/reports"
