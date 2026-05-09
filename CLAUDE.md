@@ -17,11 +17,10 @@ See `docs/` for the current source of truth:
 - `docs/pipeline.md` — Stage 0/1/2/3 internals
 - `docs/council-research-synthesis.md` — aggregated design research
 
-The `Strategy` enum has 7 constants: `PeerReview` and `RoleBased` are implemented; `Majority`,
-`GenerateRankRefine`, `MultiAgentDebate`, `MixtureOfAgents`, `Delphi` are reserved for planned
-strategies. The runner dispatches on `Strategy` and returns "strategy N not implemented" for the
-five unbuilt ones. The registry is keyed by `Name`; multiple registrations may share the same
-`Strategy` with different model sets.
+Two strategies (`PeerReview`, `RoleBased`) are implemented; five are reserved for planned
+work. Stage 0 (clarification) runs before strategy dispatch and is strategy-independent.
+See [`docs/strategies.md`](docs/strategies.md) for the full enum, status, and per-strategy
+configuration.
 
 ## Stack
 

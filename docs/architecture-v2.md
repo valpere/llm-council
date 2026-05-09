@@ -155,7 +155,7 @@ default:         return fmt.Errorf("council: strategy %d not implemented", ct.St
 
 #### Per-registration model configuration
 
-Every `CouncilType` registration is independent. Two registrations with the same `Strategy` but different `Models` / `ChairmanModel` are valid — e.g. `"factual-majority"` and `"creative-majority"` would both use `Strategy: Majority` with different voter pools. New strategies follow the same convention: each gets its own env var family (`MAJORITY_MODELS`, `MAJORITY_CHAIRMAN_MODEL`, etc.) with fall-through to `COUNCIL_MODELS` / `CHAIRMAN_MODEL` when unset. Plumbing for each strategy lands with that strategy's implementation PR.
+Every `CouncilType` registration is independent. Two registrations with the same `Strategy` but different `Models` / `ChairmanModel` are valid — e.g. `"factual-majority"` and `"creative-majority"` both use `Strategy: Majority` with different voter pools. Each strategy has its own namespaced env var family (`MAJORITY_MODELS`, `MAJORITY_CHAIRMAN_MODEL`, `DEBATE_MODELS`, etc.) with fall-through to `COUNCIL_MODELS` / `CHAIRMAN_MODEL` when unset; see [`strategies.md`](./strategies.md) for the full table. Plumbing lands with each strategy's implementation PR.
 
 #### Stage 0 (clarification) — strategy-independent
 
