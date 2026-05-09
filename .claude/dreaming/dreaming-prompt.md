@@ -128,3 +128,12 @@ PRs examined: <count>
 ## 7. What I couldn't tell (need manual review)
 - ...
 ```
+
+## Output formatting
+
+- Output the report as **plain markdown**.
+- Do **NOT** wrap the entire report in a ` ```markdown ` code fence.
+- Do **NOT** add preamble like "I have enough sample data..." — start
+  directly with the `# llm-council dreaming pass — ...` heading.
+- Do **NOT** add postamble like "Report complete." — end after the
+  last section.
