@@ -24,8 +24,7 @@ INPUT=$(cat)
 echo "[$(date -Iseconds)] session-restore input: $(echo "$INPUT" | head -c 200)" >> "$LOG_FILE"
 
 if [[ -f "$ESSENTIALS_FILE" ]]; then
-  CONTENT=$(cat "$ESSENTIALS_FILE")
-  jq -n --arg ctx "$CONTENT" '{
+  jq -n --arg ctx "$(cat "$ESSENTIALS_FILE")" '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
       additionalContext: ("Session resumed after compaction. llm-council critical rules re-injected:\n\n" + $ctx)
