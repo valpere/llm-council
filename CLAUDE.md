@@ -5,21 +5,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 LLM Council — a multi-LLM deliberation system. Council models independently answer a query,
-anonymously peer-review each other, and a Chairman model synthesizes a final answer.
+anonymously peer-review each other, and a Chairman model synthesises a final answer.
 
-**Status: planning phase.** The v1 implementation is archived on `archive/v1`. A rewrite
-is in progress starting from the research documents below.
+**Status: v2 shipping.** The v1 implementation is archived on `archive/v1`. v2 is the active
+codebase; the rewrite is well past the research phase.
 
 See `docs/` for the current source of truth:
-- `docs/council-research-synthesis.md` — aggregated design research (strategies, LCCP state machine, Go patterns, production considerations) + implementation design decisions and open questions
+- `docs/architecture-v2.md` — package layout, layer boundaries, composition root, pipeline behaviour
+- `docs/strategies.md` — the 7 deliberation strategies (2 implemented, 5 planned), per-registration model config, quorum defaults, SSE protocol
+- `docs/api.md` — REST + SSE event reference
+- `docs/pipeline.md` — Stage 0/1/2/3 internals
+- `docs/council-research-synthesis.md` — aggregated design research
 
-The v1 implementation is archived on `archive/v1`. Its docs have been removed from `docs/`.
+The `Strategy` enum has 7 constants: `PeerReview` and `RoleBased` are implemented; `Majority`,
+`GenerateRankRefine`, `MultiAgentDebate`, `MixtureOfAgents`, `Delphi` are reserved for planned
+strategies. The runner dispatches on `Strategy` and returns "strategy N not implemented" for the
+five unbuilt ones. The registry is keyed by `Name`; multiple registrations may share the same
+`Strategy` with different model sets.
 
-## Stack (planned for v2)
+## Stack
 
-- **Backend:** Go
+- **Backend:** Go 1.26.3
 - **Frontend:** React 19 + Vite 8, plain JavaScript (no TypeScript) — lives in `frontend/`
-- **LLM Gateway:** OpenRouter API
+- **LLM Gateway:** OpenRouter API (override via `LLM_API_BASE_URL` for Ollama / vLLM)
 - **API key:** `.env` → `OPENROUTER_API_KEY=sk-or-v1-...`
 
 ## Frontend architecture rules (immutable)

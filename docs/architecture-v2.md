@@ -35,7 +35,8 @@ Go HTTP server  (:8001)
 | `internal/config` | `config.go` | Reads and validates env vars; returns `*Config` |
 | `internal/openrouter` | `client.go` | `LLMClient` implementation; POSTs to OpenRouter (or compatible) API |
 | `internal/council` | `types.go` | Shared types: `CouncilType`, `Strategy`, `StageOneResult`, `StageTwoResult`, `StageThreeResult`, `Metadata`, `EventFunc` |
-| `internal/council` | `runner.go` | `Council` struct; `RunFull()` + `runStage1/2/3` |
+| `internal/council` | `runner.go` | `Council` struct; `RunFull()` strategy dispatch; `runPeerReview` + Stage 1/2/3 helpers |
+| `internal/council` | `rolebased.go` | `runRoleBased` — 2-stage roles → chairman pipeline |
 | `internal/council` | `council.go` | Helpers: `checkQuorum()`, `assignLabels()`, `QuorumError` |
 | `internal/council` | `rankings.go` | `CalculateAggregateRankings()` — Kendall's W consensus coefficient |
 | `internal/council` | `prompts.go` | Prompt builder functions for each stage |
@@ -100,26 +101,43 @@ This keeps all dependency injection in one place and makes each package independ
 
 ### Council pipeline (`internal/council`)
 
-The current strategy is **`PeerReview`** — the only value of the `Strategy` enum.
+The `Strategy` enum carries **7 constants** — 2 are implemented today, 5 are reserved for planned strategies. See [`strategies.md`](./strategies.md) for the full roadmap.
 
 ```go
 type Strategy int
 
 const (
-    PeerReview Strategy = iota  // only implemented strategy
+    PeerReview         Strategy = iota // implemented (runner.go:runPeerReview)
+    RoleBased                          // implemented (rolebased.go:runRoleBased)
+    Majority                           // not implemented
+    GenerateRankRefine                 // not implemented
+    MultiAgentDebate                   // not implemented
+    MixtureOfAgents                    // not implemented
+    Delphi                             // not implemented
 )
 
 type CouncilType struct {
     Name          string
     Strategy      Strategy
-    Models        []string    // council member model IDs
-    ChairmanModel string      // Stage 3 synthesis model
+    Models        []string    // Council members. RoleBased assigns by index mod len.
+    Roles         []Role      // RoleBased only.
+    ChairmanModel string      // Synthesiser (PeerReview, RoleBased) / arbiter / facilitator.
     Temperature   float64
-    QuorumMin     int         // 0 = formula: max(2, ⌈N/2⌉+1)
+    QuorumMin     int         // 0 = strategy-specific default formula.
 }
 ```
 
-`RunFull()` executes three stages synchronously, emitting events via `EventFunc` after each:
+`RunFull()` is a strategy-dispatch switch:
+
+```go
+switch ct.Strategy {
+case PeerReview: return c.runPeerReview(...)
+case RoleBased:  return c.runRoleBased(...)
+default:         return fmt.Errorf("council: strategy %d not implemented", ct.Strategy)
+}
+```
+
+#### `PeerReview` pipeline (3 stages)
 
 1. **Stage 1** — `runStage1`: all council models run concurrently (`sync.WaitGroup`); each writes to a pre-allocated result slot (no mutex needed)
 2. **Quorum check** — `checkQuorum`: requires `max(2, ⌈N/2⌉+1)` successful responses; returns `*QuorumError` if not met
@@ -127,6 +145,21 @@ type CouncilType struct {
 4. **Stage 2** — `runStage2`: all successful Stage 1 models run concurrently as peer reviewers; each receives the full set of anonymised responses and returns a ranked ordering as JSON
 5. **Rankings** — `CalculateAggregateRankings`: computes aggregate rank scores and Kendall's W consensus coefficient
 6. **Stage 3** — `runStage3`: single call to the Chairman model; synthesises a final answer using the peer rankings
+
+#### `RoleBased` pipeline (2 stages, Stage 2 stub)
+
+1. **Stage 1** — `runRoleBasedStage1`: roles run concurrently; model assignment is `ct.Models[i % len(ct.Models)]`. Labels are role names, not anonymised.
+2. **Quorum check** — same `checkQuorum`. `QuorumMin` is typically set to `len(Roles)` so every specialist must succeed; the runner does not enforce this — it's a registration-time choice.
+3. **Stage 2** — skipped. A minimal `Stage2CompleteData{Results:[], Metadata:{AggregateRankings:[], ConsensusW:1.0}}` event is emitted for SSE compatibility.
+4. **Stage 3** — `runRoleBasedStage3`: chairman synthesises across all role findings.
+
+#### Per-registration model configuration
+
+Every `CouncilType` registration is independent. Two registrations with the same `Strategy` but different `Models` / `ChairmanModel` are valid — e.g. `"factual-majority"` and `"creative-majority"` would both use `Strategy: Majority` with different voter pools. New strategies follow the same convention: each gets its own env var family (`MAJORITY_MODELS`, `MAJORITY_CHAIRMAN_MODEL`, etc.) with fall-through to `COUNCIL_MODELS` / `CHAIRMAN_MODEL` when unset. Plumbing for each strategy lands with that strategy's implementation PR.
+
+#### Stage 0 (clarification) — strategy-independent
+
+Stage 0 runs before any strategy dispatch. It is independent of the `Strategy` value and will gain its own dedicated model configuration in a future refactor (`CLARIFICATION_MODEL`, `CLARIFICATION_ARBITER_MODEL`). Today it reuses the council type's `Models` (generators) and `ChairmanModel` (arbiter) — that coupling will be removed.
 
 ### Storage (`internal/storage`)
 
