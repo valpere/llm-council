@@ -77,19 +77,35 @@ Every strategy emits the same event family:
 | `stage2_complete` | Intermediate processing | Yes (may be a stub) |
 | `stage3_complete` | Final synthesis | Yes |
 
-Stage 2 is polymorphic. When the Stage 2 polymorphism PR ships, the payload gains a `kind` discriminator so the frontend knows how to render it:
+Stage 2 is polymorphic. The on-the-wire envelope carries a `kind` discriminator so the frontend can route each event to a strategy-specific renderer:
 
 ```jsonc
 {
-  "kind": "peer_ranking | vote_tally | rank_refine | debate_round
-         | moa_aggregator | delphi_round | role_stub",
-  "round": 1,
-  "data": { /* strategy-specific */ },
+  "type": "stage2_complete",
+  "kind": "<one of the seven values below>",
+  "round": 1,                    // omitted when 0; reserved for multi-round strategies
+  "data": [ /* strategy-specific payload — today []StageTwoResult */ ],
   "metadata": { /* shared envelope: council_type, label_to_model, … */ }
 }
 ```
 
-For multi-round strategies (`MultiAgentDebate`, `Delphi`), the server fires `stage2_round_complete` per round, then a final `stage2_complete` when rounds end. PeerReview's existing payload corresponds to `kind: "peer_ranking"`; RoleBased's stub corresponds to `kind: "role_stub"`. The `kind` field is **added** to the existing `Stage2CompleteData` shape — no field renames or removals — so today's clients keep working.
+The `kind` field is **added** to the existing `Stage2CompleteData` shape — no field renames or removals — so today's clients keep working.
+
+For multi-round strategies (`MultiAgentDebate`, `Delphi`), the server fires `stage2_round_complete` per round, then a final `stage2_complete` when rounds end. PeerReview's existing payload corresponds to `kind: "peer_ranking"`; RoleBased's stub corresponds to `kind: "role_stub"`.
+
+### Stage 2 `kind` values
+
+| Kind | Strategy | Status | `data` shape | `round` semantics |
+|------|----------|--------|--------------|-------------------|
+| `peer_ranking` | `PeerReview` | **shipped** | `[]StageTwoResult` — each reviewer's ranked label list | always `0` |
+| `role_stub` | `RoleBased` | **shipped** | `[]` — empty; metadata carries `aggregate_rankings: []`, `consensus_w: 1.0` | always `0` |
+| `vote_tally` | `Majority` | **reserved** | per-candidate vote counts (or weighted scores), winner identifier, optional cluster groupings | always `0` |
+| `rank_refine` | `GenerateRankRefine` | **reserved** | ranked candidate list with criterion scores; top-K subset that proceeds to refinement | always `0` |
+| `debate_round` | `MultiAgentDebate` | **reserved** | per-debater critique-and-revise output for the current round; references to the round's targets | `1..N`; one event per round, then a final `stage2_complete` with summary |
+| `moa_aggregator` | `MixtureOfAgents` | **reserved** | Layer-2 aggregator outputs; references to which Layer-1 proposers fed each aggregator | always `0` (single aggregator pass) |
+| `delphi_round` | `Delphi` | **reserved** | per-rater rating list for the current round; running averages and convergence indicator | `1..N`; one event per round |
+
+Reserved kinds are not yet emitted by the runtime. The frontend `Stage2.jsx` dispatcher renders any unknown kind via a fallback view (`Stage 2 — kind: <X> (view not implemented yet)`) so a strategy in flight does not crash the UI.
 
 ---
 

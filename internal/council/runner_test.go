@@ -525,6 +525,12 @@ func TestRunFull_Stage2CompletePayload_IsStage2CompleteData(t *testing.T) {
 	if !ok {
 		t.Fatalf("stage2_complete payload: got %T, want Stage2CompleteData", stage2Data)
 	}
+	if d.Kind != "peer_ranking" {
+		t.Errorf("Kind: got %q, want %q", d.Kind, "peer_ranking")
+	}
+	if d.Round != 0 {
+		t.Errorf("Round: got %d, want 0", d.Round)
+	}
 	if d.Metadata.CouncilType != "default" {
 		t.Errorf("Metadata.CouncilType: got %q, want %q", d.Metadata.CouncilType, "default")
 	}

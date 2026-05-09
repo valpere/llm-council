@@ -45,10 +45,14 @@ function App() {
         })
         .map((msg) => {
           if (msg.role !== 'assistant') return msg;
+          // Derive stage2Kind for historical records (AssistantMessage doesn't persist Kind).
+          // Today only PeerReview was persisted, so default to "peer_ranking".
+          // Future strategies that persist will need their own derivation rules.
           return {
             loading: { stage0: false, stage1: false, stage2: false, stage3: false },
             error: null,
             pendingClarification: null,
+            stage2Kind: 'peer_ranking',
             ...msg,
           };
         });
@@ -60,7 +64,7 @@ function App() {
         } else {
           messages.push({
             role: 'assistant',
-            stage1: null, stage2: null, stage3: null, metadata: null,
+            stage1: null, stage2: null, stage2Kind: null, stage3: null, metadata: null,
             loading: { stage0: false, stage1: false, stage2: false, stage3: false },
             error: null,
             pendingClarification,
@@ -137,6 +141,8 @@ function App() {
     stage2_start: () => updateLast((msg) => { msg.loading.stage2 = true; }),
     stage2_complete: (event) => updateLast((msg) => {
       msg.stage2 = event.data;
+      // Default to "peer_ranking" when an older backend doesn't emit `kind`.
+      msg.stage2Kind = event.kind ?? 'peer_ranking';
       msg.metadata = event.metadata;
       msg.loading.stage2 = false;
     }),
@@ -173,7 +179,7 @@ function App() {
 
       const assistantMessage = {
         role: 'assistant',
-        stage1: null, stage2: null, stage3: null, metadata: null,
+        stage1: null, stage2: null, stage2Kind: null, stage3: null, metadata: null,
         loading: { stage0: false, stage1: true, stage2: false, stage3: false },
         error: null,
         pendingClarification: null,

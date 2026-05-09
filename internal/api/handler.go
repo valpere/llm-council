@@ -486,16 +486,21 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// sendStage2SSE emits the spec-correct stage2_complete shape:
-	// { "type": "stage2_complete", "data": [...], "metadata": {...} }
-	// metadata is a top-level field, not nested under data.
+	// { "type": "stage2_complete", "kind": "...", "data": [...], "metadata": {...}, "round": N }
+	// kind discriminates the strategy-specific payload (peer_ranking, role_stub, …);
+	// round is omitted when zero (reserved for future multi-round strategies).
 	sendStage2SSE := func(d council.Stage2CompleteData) {
 		type stage2Payload struct {
 			Type     string                   `json:"type"`
+			Kind     string                   `json:"kind"`
+			Round    int                      `json:"round,omitempty"`
 			Data     []council.StageTwoResult `json:"data"`
 			Metadata council.Metadata         `json:"metadata"`
 		}
 		b, err := json.Marshal(stage2Payload{
 			Type:     "stage2_complete",
+			Kind:     d.Kind,
+			Round:    d.Round,
 			Data:     d.Results,
 			Metadata: d.Metadata,
 		})

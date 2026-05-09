@@ -564,6 +564,7 @@ func TestSendMessageStream(t *testing.T) {
 						{Label: "Response A", Content: "Go is a compiled language"},
 					})
 					onEvent("stage2_complete", council.Stage2CompleteData{
+						Kind: "peer_ranking",
 						Results: []council.StageTwoResult{
 							{ReviewerLabel: "Response A", Rankings: []string{"Response A"}},
 						},
@@ -600,19 +601,27 @@ func TestSendMessageStream(t *testing.T) {
 					t.Errorf("last event: got %v, want 'complete'", types)
 				}
 
-				// stage2_complete must have metadata as a TOP-LEVEL field per the
-				// streaming spec: { "type": "stage2_complete", "data": [...], "metadata": {...} }
+				// stage2_complete must have kind + metadata as TOP-LEVEL fields per the
+				// streaming spec: { "type": "stage2_complete", "kind": "...", "data": [...], "metadata": {...}, "round"?: N }
 				for _, line := range strings.Split(body, "\n") {
 					if !strings.HasPrefix(line, "data: ") {
 						continue
 					}
 					var env struct {
-						Type     string               `json:"type"`
+						Type     string                   `json:"type"`
+						Kind     string                   `json:"kind"`
+						Round    int                      `json:"round,omitempty"`
 						Data     []council.StageTwoResult `json:"data"`
-						Metadata council.Metadata     `json:"metadata"`
+						Metadata council.Metadata         `json:"metadata"`
 					}
 					if err := json.Unmarshal([]byte(line[6:]), &env); err != nil || env.Type != "stage2_complete" {
 						continue
+					}
+					if env.Kind != "peer_ranking" {
+						t.Errorf("kind: got %q, want %q", env.Kind, "peer_ranking")
+					}
+					if env.Round != 0 {
+						t.Errorf("round: got %d, want 0 (omitempty default)", env.Round)
 					}
 					if env.Metadata.ConsensusW != 0.9 {
 						t.Errorf("consensus_w: got %f, want 0.9", env.Metadata.ConsensusW)

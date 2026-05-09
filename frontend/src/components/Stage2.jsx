@@ -11,7 +11,9 @@ function consensusLabel(w) {
   return 'weak';
 }
 
-export default function Stage2({ rankings, labelToModel, aggregateRankings, consensusW, isLoading }) {
+// PeerRankingView renders the 3-tab ranking + aggregate panel for the
+// PeerReview strategy. Unchanged from the pre-dispatcher Stage 2 body.
+function PeerRankingView({ rankings, labelToModel, aggregateRankings, consensusW, isLoading }) {
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
 
@@ -106,4 +108,73 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, cons
       )}
     </div>
   );
+}
+
+// RoleStubView renders a minimal placeholder for the RoleBased strategy,
+// where Stage 2 has no peer-ranking content (roles are complementary).
+function RoleStubView({ isLoading }) {
+  if (isLoading) {
+    return (
+      <div className="stage stage2">
+        <div className="stage-accordion" aria-disabled="true">
+          <span className="stage-accordion-label">
+            <span className="spinner-sm" />
+            Stage 2…
+          </span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="stage stage2">
+      <div className="stage-accordion" aria-disabled="true">
+        <span className="stage-accordion-label">
+          Stage 2: roles are complementary — no peer ranking.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// UnknownKindView is the safety net for strategy kinds the frontend doesn't
+// know how to render yet. It surfaces the kind name so the gap is visible
+// in development without crashing the UI.
+function UnknownKindView({ kind }) {
+  return (
+    <div className="stage stage2">
+      <div className="stage-accordion" aria-disabled="true">
+        <span className="stage-accordion-label">
+          Stage 2 — kind: <code>{kind}</code> (view not implemented yet)
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Stage2 dispatches to the right sub-renderer based on `kind`. The dispatcher
+// is the only public component; the views above are private to this module.
+//
+// `kind` propagates from the SSE stage2_complete event (or, for replayed
+// historical conversations, is derived in App.jsx). When it is null/undefined
+// (e.g. an older backend that doesn't emit kind), we default to peer_ranking
+// because that was the only persisted Stage 2 shape before this PR.
+export default function Stage2({ kind, rankings, labelToModel, aggregateRankings, consensusW, isLoading }) {
+  const effectiveKind = kind ?? 'peer_ranking';
+
+  switch (effectiveKind) {
+    case 'peer_ranking':
+      return (
+        <PeerRankingView
+          rankings={rankings}
+          labelToModel={labelToModel}
+          aggregateRankings={aggregateRankings}
+          consensusW={consensusW}
+          isLoading={isLoading}
+        />
+      );
+    case 'role_stub':
+      return <RoleStubView isLoading={isLoading} />;
+    default:
+      return <UnknownKindView kind={effectiveKind} />;
+  }
 }
