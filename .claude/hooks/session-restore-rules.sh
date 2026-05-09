@@ -11,7 +11,9 @@
 set -euo pipefail
 
 # Log invocations for debugging. Symmetric with precompact-emit-rules.sh.
-LOG_FILE="${LLM_COUNCIL_HOOK_LOG:-/tmp/llm-council-hooks.log}"
+LOG_DIR="${LLM_COUNCIL_HOOK_LOG:-${HOME}/.cache/llm-council}"
+mkdir -p "$LOG_DIR" && chmod 700 "$LOG_DIR"
+LOG_FILE="$LOG_DIR/hooks.log"
 exec 2> >(tee -a "$LOG_FILE" >&2)
 echo "[$(date -Iseconds)] session-restore-rules.sh invoked" >> "$LOG_FILE"
 
@@ -19,7 +21,7 @@ ESSENTIALS_FILE="$(dirname "$0")/../context-essentials.md"
 
 # Consume input to avoid SIGPIPE
 INPUT=$(cat)
-echo "[$(date -Iseconds)] session-restore input: $INPUT" >> "$LOG_FILE"
+echo "[$(date -Iseconds)] session-restore input: $(echo "$INPUT" | head -c 200)" >> "$LOG_FILE"
 
 if [[ -f "$ESSENTIALS_FILE" ]]; then
   CONTENT=$(cat "$ESSENTIALS_FILE")

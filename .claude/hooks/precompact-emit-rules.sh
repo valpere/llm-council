@@ -16,7 +16,9 @@ set -euo pipefail
 # Log invocations for debugging — PreCompact runs in a forked agent, so its
 # output doesn't show in the main session transcript. Without this log, you
 # can't verify the hook fired. Remove if log noise becomes a problem.
-LOG_FILE="${LLM_COUNCIL_HOOK_LOG:-/tmp/llm-council-hooks.log}"
+LOG_DIR="${LLM_COUNCIL_HOOK_LOG:-${HOME}/.cache/llm-council}"
+mkdir -p "$LOG_DIR" && chmod 700 "$LOG_DIR"
+LOG_FILE="$LOG_DIR/hooks.log"
 exec 2> >(tee -a "$LOG_FILE" >&2)
 echo "[$(date -Iseconds)] precompact-emit-rules.sh invoked" >> "$LOG_FILE"
 
@@ -24,7 +26,7 @@ ESSENTIALS_FILE="$(dirname "$0")/../context-essentials.md"
 
 # Read hook input (we don't use it for now, but consume to avoid SIGPIPE)
 INPUT=$(cat)
-echo "[$(date -Iseconds)] precompact input: $INPUT" >> "$LOG_FILE"
+echo "[$(date -Iseconds)] precompact input: $(echo "$INPUT" | head -c 200)" >> "$LOG_FILE"
 
 if [[ -f "$ESSENTIALS_FILE" ]]; then
   cat <<EOF
