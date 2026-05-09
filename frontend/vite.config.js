@@ -8,6 +8,23 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      // Warn when any chunk exceeds this size (kB, uncompressed). The current
+      // baseline is ~152 kB gzip; raise this threshold only after profiling.
+      chunkSizeWarningLimit: 300,
+      rollupOptions: {
+        output: {
+          // Split markdown + syntax-highlighting into a separate vendor chunk
+          // so the main app chunk stays lean on first load.
+          // Function form required by rolldown (Vite 8).
+          manualChunks(id) {
+            if (id.includes('react-markdown') || id.includes('rehype-highlight') || id.includes('highlight.js')) {
+              return 'vendor-markdown'
+            }
+          },
+        },
+      },
+    },
     server: {
       proxy: {
         '/api': {
