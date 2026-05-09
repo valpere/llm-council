@@ -4,6 +4,31 @@ import ChatInterface from './components/ChatInterface';
 import { api } from './api';
 import './App.css';
 
+// Maps a persisted council_type (or a strategy-emitted Stage 2 kind) to the
+// kind value the Stage2 dispatcher expects. Today only PeerReview is
+// persistable, so "default" → "peer_ranking". Future strategies extend the
+// switch when their registrations begin persisting. Empty / whitespace / null
+// inputs all collapse to "peer_ranking" — the safe pre-this-PR default.
+function deriveStage2Kind(councilType) {
+  const ct = (councilType ?? '').trim();
+  if (!ct) return 'peer_ranking';
+  switch (ct) {
+    case 'default':
+      return 'peer_ranking';
+    default:
+      return 'peer_ranking';
+  }
+}
+
+// normaliseStage2Kind treats null/undefined/empty/whitespace as missing and
+// falls back to "peer_ranking". A non-empty value is returned as-is so the
+// dispatcher routes to UnknownKindView when the backend emits a kind the
+// frontend genuinely doesn't recognise.
+function normaliseStage2Kind(raw) {
+  const trimmed = (raw ?? '').trim();
+  return trimmed || 'peer_ranking';
+}
+
 function App() {
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
@@ -45,14 +70,14 @@ function App() {
         })
         .map((msg) => {
           if (msg.role !== 'assistant') return msg;
-          // Derive stage2Kind for historical records (AssistantMessage doesn't persist Kind).
-          // Today only PeerReview was persisted, so default to "peer_ranking".
-          // Future strategies that persist will need their own derivation rules.
+          // AssistantMessage doesn't persist Kind, so derive stage2Kind from
+          // metadata.council_type for replay. Falls back to "peer_ranking" for
+          // missing council_type — matches the pre-this-PR rendering default.
           return {
             loading: { stage0: false, stage1: false, stage2: false, stage3: false },
             error: null,
             pendingClarification: null,
-            stage2Kind: 'peer_ranking',
+            stage2Kind: deriveStage2Kind(msg.metadata?.council_type),
             ...msg,
           };
         });
@@ -141,8 +166,10 @@ function App() {
     stage2_start: () => updateLast((msg) => { msg.loading.stage2 = true; }),
     stage2_complete: (event) => updateLast((msg) => {
       msg.stage2 = event.data;
-      // Default to "peer_ranking" when an older backend doesn't emit `kind`.
-      msg.stage2Kind = event.kind ?? 'peer_ranking';
+      // Treat null / undefined / empty / whitespace-only as missing and
+      // fall back to "peer_ranking". Without this, an older backend or a
+      // malformed event would route the dispatcher to UnknownKindView.
+      msg.stage2Kind = normaliseStage2Kind(event.kind);
       msg.metadata = event.metadata;
       msg.loading.stage2 = false;
     }),

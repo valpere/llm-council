@@ -497,9 +497,17 @@ func (h *Handler) sendMessageStream(w http.ResponseWriter, r *http.Request) {
 			Data     []council.StageTwoResult `json:"data"`
 			Metadata council.Metadata         `json:"metadata"`
 		}
+		// Default empty Kind to "peer_ranking" so a Stage2CompleteData built
+		// without an explicit Kind (e.g. by older callers or test fakes) does
+		// not produce wire-level `"kind":""`, which would route the frontend
+		// dispatcher to the unknown-kind view.
+		kind := d.Kind
+		if kind == "" {
+			kind = "peer_ranking"
+		}
 		b, err := json.Marshal(stage2Payload{
 			Type:     "stage2_complete",
-			Kind:     d.Kind,
+			Kind:     kind,
 			Round:    d.Round,
 			Data:     d.Results,
 			Metadata: d.Metadata,

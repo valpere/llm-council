@@ -91,7 +91,7 @@ Stage 2 is polymorphic. The on-the-wire envelope carries a `kind` discriminator 
 
 The `kind` field is **added** to the existing `Stage2CompleteData` shape — no field renames or removals — so today's clients keep working.
 
-For multi-round strategies (`MultiAgentDebate`, `Delphi`), the server fires `stage2_round_complete` per round, then a final `stage2_complete` when rounds end. PeerReview's existing payload corresponds to `kind: "peer_ranking"`; RoleBased's stub corresponds to `kind: "role_stub"`.
+PeerReview's existing payload corresponds to `kind: "peer_ranking"`; RoleBased's stub corresponds to `kind: "role_stub"`. For multi-round strategies (`MultiAgentDebate`, `Delphi`) — both **planned, not yet implemented** — the server is expected to fire a `stage2_round_complete` event per round followed by a final `stage2_complete` summary; this event type does not exist in the runtime today and ships with the first multi-round strategy.
 
 ### Stage 2 `kind` values
 

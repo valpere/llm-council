@@ -155,11 +155,13 @@ function UnknownKindView({ kind }) {
 // is the only public component; the views above are private to this module.
 //
 // `kind` propagates from the SSE stage2_complete event (or, for replayed
-// historical conversations, is derived in App.jsx). When it is null/undefined
-// (e.g. an older backend that doesn't emit kind), we default to peer_ranking
-// because that was the only persisted Stage 2 shape before this PR.
+// historical conversations, is derived in App.jsx). When it is null /
+// undefined / empty / whitespace-only (e.g. an older backend that doesn't
+// emit kind, or a malformed event), we default to peer_ranking because that
+// was the only persisted Stage 2 shape before this PR.
 export default function Stage2({ kind, rankings, labelToModel, aggregateRankings, consensusW, isLoading }) {
-  const effectiveKind = kind ?? 'peer_ranking';
+  const trimmed = typeof kind === 'string' ? kind.trim() : '';
+  const effectiveKind = trimmed || 'peer_ranking';
 
   switch (effectiveKind) {
     case 'peer_ranking':

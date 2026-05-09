@@ -607,27 +607,35 @@ func TestSendMessageStream(t *testing.T) {
 					if !strings.HasPrefix(line, "data: ") {
 						continue
 					}
+					raw := []byte(line[6:])
+					// First-pass: typed unmarshal for value assertions.
 					var env struct {
 						Type     string                   `json:"type"`
 						Kind     string                   `json:"kind"`
-						Round    int                      `json:"round,omitempty"`
 						Data     []council.StageTwoResult `json:"data"`
 						Metadata council.Metadata         `json:"metadata"`
 					}
-					if err := json.Unmarshal([]byte(line[6:]), &env); err != nil || env.Type != "stage2_complete" {
+					if err := json.Unmarshal(raw, &env); err != nil || env.Type != "stage2_complete" {
 						continue
 					}
 					if env.Kind != "peer_ranking" {
 						t.Errorf("kind: got %q, want %q", env.Kind, "peer_ranking")
-					}
-					if env.Round != 0 {
-						t.Errorf("round: got %d, want 0 (omitempty default)", env.Round)
 					}
 					if env.Metadata.ConsensusW != 0.9 {
 						t.Errorf("consensus_w: got %f, want 0.9", env.Metadata.ConsensusW)
 					}
 					if env.Metadata.LabelToModel["Response A"] != "openai/gpt-4o" {
 						t.Errorf("label_to_model: got %v", env.Metadata.LabelToModel)
+					}
+					// Second-pass: raw key inspection — `round` must be ABSENT when zero
+					// (omitempty), not present-but-zero. A typed int unmarshal cannot
+					// distinguish absence from explicit zero, so check the key directly.
+					var keys map[string]json.RawMessage
+					if err := json.Unmarshal(raw, &keys); err != nil {
+						t.Fatalf("re-unmarshal as map: %v", err)
+					}
+					if _, present := keys["round"]; present {
+						t.Errorf("round: must be omitted when zero (omitempty), but key was present in JSON: %s", string(raw))
 					}
 					break
 				}
