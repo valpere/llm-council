@@ -4,7 +4,7 @@
 > with matcher='compact') and emphasized to the compactor (via PreCompact
 > hook). Source of truth for rules that MUST survive context summarization.
 >
-> Keep this file under ~50 lines — every line costs tokens on each
+> Keep this file under ~60 lines — every line costs tokens on each
 > re-injection.
 
 ## Frontend architecture (immutable)
@@ -39,6 +39,16 @@ contract and require Tech Lead override.
 - **PRs** are squash-merged. Never merge commits or rebase-merge.
 - **`/fix-review`** runs 3 rounds: security + simplifier + tech-lead → arbiter.
 
+## Docs discipline
+
+- **Mark planned vs current explicitly.** When a doc describes a feature
+  not yet wired into code, prefix the section with `PLANNED:` or
+  `NOT YET WIRED:`. Never write future-tense behaviour as if it were
+  current. Recurring `/fix-review` theme — see dreaming W19 §2.
+- **Update `CLAUDE.md`, `architecture-v2.md`, `strategies.md`
+  together** when a feature lands. Drift between these three is the
+  most common review comment in this repo.
+
 ## Banned patterns
 
 - No `--no-verify` on git operations.
@@ -47,3 +57,4 @@ contract and require Tech Lead override.
 - No state writes outside `App.jsx`.
 - No TypeScript in `frontend/`.
 - No commits skipping pre-commit hooks unless user explicitly requests.
+- No `fmt.Println` in `cmd/` packages — use the configured logger.
