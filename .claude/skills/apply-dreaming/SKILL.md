@@ -10,10 +10,9 @@ description: "Read the latest llm-council dreaming report and apply
 
 # /apply-dreaming (llm-council)
 
-Weekly review skill for processing dreaming reports from
-`.claude/dreaming/reports/`. Walks items interactively, routes
-substantive code changes through the project's standard PR workflow,
-applies tooling-only changes directly. Leaves an audit trail.
+Walks each dreaming-report finding interactively and leaves an audit
+trail (`[applied YYYY-MM-DD]` / `[planned …]` / `[skipped …]` markers
+appended to the report).
 
 ## When to invoke
 
@@ -205,7 +204,7 @@ Next steps:
 
 ## See also
 
-- `~/Documents/llm-wiki/wiki/dreaming.md` — concept and pattern.
-- `.claude/dreaming/dreaming-prompt.md` — what's looked for in the pass.
+- `.claude/dreaming/dreaming-prompt.md` — what the dreaming pass looks for.
+- `.claude/dreaming/README.md` — how the dreaming script is wired and run.
 - `.claude/context-essentials.md` — load-bearing rules (target of many
   promote-to-rules suggestions).
