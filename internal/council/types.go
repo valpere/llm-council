@@ -98,6 +98,12 @@ type StageTwoResult struct {
 }
 
 // StageThreeResult holds the chairman's synthesised final answer.
+//
+// Model is the OpenRouter ID of the synthesising model when an LLM call
+// produced the content. For strategies whose Stage 3 emits a result without
+// an LLM call (e.g. Majority's plurality winner with no chairman), Model is
+// the empty string and DurationMs is 0. Frontend renderers must handle the
+// empty-Model case gracefully (omit the model badge).
 type StageThreeResult struct {
 	Content    string `json:"content"`
 	Model      string `json:"model"`
@@ -111,12 +117,35 @@ type RankedModel struct {
 	Score float64 `json:"score"`
 }
 
+// VoteCluster groups Stage 1 answers that normalise to the same content under
+// the Majority strategy's voting algorithm. Members holds the labels of the
+// Stage 1 results in the cluster; Representative is the verbatim content of
+// the cluster's first member (used for display and downstream synthesis).
+type VoteCluster struct {
+	Members        []string `json:"members"`
+	Representative string   `json:"representative"`
+	Votes          int      `json:"votes"`
+}
+
+// VoteTally is the result of clustering Majority Stage 1 answers and selecting
+// the plurality winner. Clusters are sorted by Votes descending, then by
+// Representative ascending for stable output. WinnerLabel is the label of the
+// first member in the winning (highest-votes) cluster.
+type VoteTally struct {
+	Clusters    []VoteCluster `json:"clusters"`
+	WinnerLabel string        `json:"winner_label"`
+}
+
 // Metadata is persisted with every assistant message.
+//
+// VoteTally is populated only by the Majority strategy; omitempty keeps it
+// absent on the wire and at rest for every other strategy.
 type Metadata struct {
-	CouncilType       string        `json:"council_type"`
+	CouncilType       string            `json:"council_type"`
 	LabelToModel      map[string]string `json:"label_to_model"`
-	AggregateRankings []RankedModel `json:"aggregate_rankings"`
-	ConsensusW        float64       `json:"consensus_w"`
+	AggregateRankings []RankedModel     `json:"aggregate_rankings"`
+	ConsensusW        float64           `json:"consensus_w"`
+	VoteTally         *VoteTally        `json:"vote_tally,omitempty"`
 }
 
 // Stage2CompleteData is the payload emitted by Runner for the "stage2_complete" event.

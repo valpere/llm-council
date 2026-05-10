@@ -221,3 +221,69 @@ func TestLoad_ClarificationModels_BothUnset_FieldsEmpty(t *testing.T) {
 		t.Errorf("ClarificationArbiterModel: got %q, want empty (legacy fall-through path)", cfg.ClarificationArbiterModel)
 	}
 }
+
+// ── TestLoad_MajorityModels ───────────────────────────────────────────────
+//
+// Setting MAJORITY_MODELS is what registers the "majority" council type at
+// startup; the loader leaves the field empty when unset (no pre-fill from
+// COUNCIL_MODELS). MAJORITY_CHAIRMAN_MODEL is optional.
+
+func TestLoad_MajorityModels_BothSet(t *testing.T) {
+	baseEnv(t)
+	setenv(t, "MAJORITY_MODELS", "openai/gpt-4o-mini, anthropic/claude-haiku-4-5, google/gemini-flash-1.5")
+	setenv(t, "MAJORITY_CHAIRMAN_MODEL", "anthropic/claude-sonnet-4-5")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"openai/gpt-4o-mini", "anthropic/claude-haiku-4-5", "google/gemini-flash-1.5"}
+	if len(cfg.MajorityModels) != len(want) {
+		t.Fatalf("MajorityModels: got %v, want %v", cfg.MajorityModels, want)
+	}
+	for i, m := range want {
+		if cfg.MajorityModels[i] != m {
+			t.Errorf("MajorityModels[%d]: got %q, want %q", i, cfg.MajorityModels[i], m)
+		}
+	}
+	if cfg.MajorityChairmanModel != "anthropic/claude-sonnet-4-5" {
+		t.Errorf("MajorityChairmanModel: got %q, want %q", cfg.MajorityChairmanModel, "anthropic/claude-sonnet-4-5")
+	}
+}
+
+func TestLoad_MajorityModels_GeneratorsSet_ChairmanUnset(t *testing.T) {
+	baseEnv(t)
+	setenv(t, "MAJORITY_MODELS", "openai/gpt-4o-mini")
+	unsetenv(t, "MAJORITY_CHAIRMAN_MODEL")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.MajorityModels) != 1 || cfg.MajorityModels[0] != "openai/gpt-4o-mini" {
+		t.Errorf("MajorityModels: got %v, want [openai/gpt-4o-mini]", cfg.MajorityModels)
+	}
+	if cfg.MajorityChairmanModel != "" {
+		t.Errorf("MajorityChairmanModel: got %q, want empty (chairman is optional for Majority)", cfg.MajorityChairmanModel)
+	}
+}
+
+func TestLoad_MajorityModels_BothUnset(t *testing.T) {
+	baseEnv(t)
+	unsetenv(t, "MAJORITY_MODELS")
+	unsetenv(t, "MAJORITY_CHAIRMAN_MODEL")
+	// Pre-fill council defaults to prove the loader does NOT pre-fill from them.
+	setenv(t, "COUNCIL_MODELS", "model-a,model-b")
+	setenv(t, "CHAIRMAN_MODEL", "chairman-z")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.MajorityModels) != 0 {
+		t.Errorf("MajorityModels: got %v, want empty (registration is opt-in)", cfg.MajorityModels)
+	}
+	if cfg.MajorityChairmanModel != "" {
+		t.Errorf("MajorityChairmanModel: got %q, want empty", cfg.MajorityChairmanModel)
+	}
+}

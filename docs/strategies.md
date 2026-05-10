@@ -14,7 +14,7 @@ Stage 0 (clarification) runs **before** strategy dispatch and is strategy-indepe
 |----------|--------|---------------|-------------------|
 | `PeerReview` | shipped | `runner.go:runPeerReview` | initial |
 | `RoleBased` | shipped | `rolebased.go:runRoleBased` | #177 |
-| `Majority` | planned | — | TBD |
+| `Majority` | shipped | `majority.go:runMajority` | #205 |
 | `GenerateRankRefine` | planned | — | TBD |
 | `MultiAgentDebate` | planned | — | TBD |
 | `MixtureOfAgents` | planned | — | TBD |
@@ -99,7 +99,7 @@ PeerReview's existing payload corresponds to `kind: "peer_ranking"`; RoleBased's
 |------|----------|--------|--------------|-------------------|
 | `peer_ranking` | `PeerReview` | **shipped** | `[]StageTwoResult` — each reviewer's ranked label list | always `0` |
 | `role_stub` | `RoleBased` | **shipped** | `[]` — empty; metadata carries `aggregate_rankings: []`, `consensus_w: 1.0` | always `0` |
-| `vote_tally` | `Majority` | **reserved** | per-candidate vote counts (or weighted scores), winner identifier, optional cluster groupings | always `0` |
+| `vote_tally` | `Majority` | **shipped** | `metadata.vote_tally` is a `VoteTally` (`{clusters: VoteCluster[], winner_label: string}`); `data` is `[]` (Majority does not produce per-reviewer Stage 2 results). `VoteCluster` is `{members: string[], representative: string, votes: int}`. Clusters are sorted by votes desc, then representative asc. | always `0` |
 | `rank_refine` | `GenerateRankRefine` | **reserved** | ranked candidate list with criterion scores; top-K subset that proceeds to refinement | always `0` |
 | `debate_round` | `MultiAgentDebate` | **reserved** | per-debater critique-and-revise output for the current round; references to the round's targets | `1..N`; one event per round, then a final `stage2_complete` with summary |
 | `moa_aggregator` | `MixtureOfAgents` | **reserved** | Layer-2 aggregator outputs; references to which Layer-1 proposers fed each aggregator | always `0` (single aggregator pass) |

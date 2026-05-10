@@ -66,6 +66,8 @@ func (c *Council) RunFull(ctx context.Context, query string, councilTypeName str
 		return c.runPeerReview(ctx, query, ct, onEvent)
 	case RoleBased:
 		return c.runRoleBased(ctx, query, ct, onEvent)
+	case Majority:
+		return c.runMajority(ctx, query, ct, onEvent)
 	default:
 		return fmt.Errorf("council: strategy %d not implemented", ct.Strategy)
 	}

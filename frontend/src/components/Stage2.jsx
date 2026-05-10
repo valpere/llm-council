@@ -110,6 +110,91 @@ function PeerRankingView({ rankings, labelToModel, aggregateRankings, consensusW
   );
 }
 
+// VoteTallyView renders the Majority strategy's Stage 2 payload as a vertical
+// list of clusters, each with a horizontal bar proportional to vote count.
+// The winning cluster (the first in the sorted list, by buildVoteTally
+// invariant) is highlighted with an accent border and ✓ marker. Long cluster
+// representatives are truncated to two lines with click-to-expand.
+const REPRESENTATIVE_TRUNCATE_THRESHOLD = 140;
+
+function VoteCluster({ cluster, isWinner, totalVotes }) {
+  const [expanded, setExpanded] = useState(false);
+  const ratio = totalVotes > 0 ? cluster.votes / totalVotes : 0;
+  const widthPct = Math.max(2, Math.round(ratio * 100));
+  const longText = (cluster.representative ?? '').length > REPRESENTATIVE_TRUNCATE_THRESHOLD;
+
+  return (
+    <div className={`vote-cluster${isWinner ? ' winner' : ''}`}>
+      <div className="vote-cluster-header">
+        {isWinner && <span className="vote-winner-mark" aria-label="winner">✓</span>}
+        <div className="vote-bar-track" aria-hidden="true">
+          <div className="vote-bar-fill" style={{ width: `${widthPct}%` }} />
+        </div>
+        <div className="vote-count">
+          {cluster.votes} {cluster.votes === 1 ? 'vote' : 'votes'}
+        </div>
+      </div>
+      <div className={`vote-representative${longText && !expanded ? ' collapsed' : ''}`}>
+        {cluster.representative}
+      </div>
+      {longText && (
+        <button
+          type="button"
+          className="vote-expand-btn"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? 'Show less' : 'Show full answer'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function VoteTallyView({ voteTally, isLoading }) {
+  if (isLoading) {
+    return (
+      <div className="stage stage2">
+        <div className="stage-accordion" aria-disabled="true">
+          <span className="stage-accordion-label">
+            <span className="spinner-sm" />
+            Tallying votes…
+          </span>
+        </div>
+      </div>
+    );
+  }
+  if (!voteTally || !voteTally.clusters || voteTally.clusters.length === 0) {
+    return null;
+  }
+  const totalVotes = voteTally.clusters.reduce((sum, c) => sum + (c.votes ?? 0), 0);
+  const winnerLabel = voteTally.winner_label;
+
+  return (
+    <div className="stage stage2">
+      <div className="stage-accordion" aria-disabled="true">
+        <span className="stage-accordion-label">Stage 2: Vote Tally</span>
+      </div>
+      <div className="stage-body">
+        <div className="vote-tally">
+          {voteTally.clusters.map((cluster, index) => {
+            const isWinner =
+              index === 0 || (winnerLabel && cluster.members?.includes(winnerLabel));
+            return (
+              <VoteCluster
+                key={index}
+                cluster={cluster}
+                isWinner={Boolean(isWinner) && index === 0}
+                totalVotes={totalVotes}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // RoleStubView renders a minimal placeholder for the RoleBased strategy,
 // where Stage 2 has no peer-ranking content (roles are complementary).
 function RoleStubView({ isLoading }) {
@@ -159,7 +244,7 @@ function UnknownKindView({ kind }) {
 // undefined / empty / whitespace-only (e.g. an older backend that doesn't
 // emit kind, or a malformed event), we default to peer_ranking because that
 // was the only persisted Stage 2 shape before this PR.
-export default function Stage2({ kind, rankings, labelToModel, aggregateRankings, consensusW, isLoading }) {
+export default function Stage2({ kind, rankings, labelToModel, aggregateRankings, consensusW, voteTally, isLoading }) {
   const trimmed = typeof kind === 'string' ? kind.trim() : '';
   const effectiveKind = trimmed || 'peer_ranking';
 
@@ -176,6 +261,8 @@ export default function Stage2({ kind, rankings, labelToModel, aggregateRankings
       );
     case 'role_stub':
       return <RoleStubView isLoading={isLoading} />;
+    case 'vote_tally':
+      return <VoteTallyView voteTally={voteTally} isLoading={isLoading} />;
     default:
       return <UnknownKindView kind={effectiveKind} />;
   }

@@ -35,6 +35,13 @@ type Config struct {
 	ClarificationModels       []string
 	ClarificationArbiterModel string
 
+	// Majority strategy registration. Setting MajorityModels is what registers
+	// the "majority" council type — without it, the strategy ships compiled-in
+	// but is not reachable via the API. MajorityChairmanModel is optional;
+	// when empty, ties cause a loud error rather than silent tiebreak.
+	MajorityModels        []string
+	MajorityChairmanModel string
+
 	// LLMAPIMaxRetries is the number of retries the OpenRouter client attempts
 	// on transient failures (HTTP 429/502/503/504, network timeouts, EOFs).
 	// 0 disables retries. Default: 2 (3 total attempts including the initial).
@@ -155,6 +162,22 @@ func Load() (*Config, error) {
 	// than as a non-empty model ID that would skip the fall-back.
 	clarificationArbiterModel := strings.TrimSpace(os.Getenv("CLARIFICATION_ARBITER_MODEL"))
 
+	// Majority strategy generator pool. Empty slice when unset — registration
+	// in cmd/server/main.go uses non-empty as the opt-in signal.
+	var majorityModels []string
+	if raw := os.Getenv("MAJORITY_MODELS"); raw != "" {
+		for _, m := range strings.Split(raw, ",") {
+			if m = strings.TrimSpace(m); m != "" {
+				majorityModels = append(majorityModels, m)
+			}
+		}
+	}
+
+	// Majority strategy chairman (optional — for tiebreak/polish). Trim like
+	// CLARIFICATION_ARBITER_MODEL so accidental whitespace doesn't bypass the
+	// "no chairman" loud-error path on ties.
+	majorityChairmanModel := strings.TrimSpace(os.Getenv("MAJORITY_CHAIRMAN_MODEL"))
+
 	llmAPIMaxRetries := 2
 	if raw := os.Getenv("LLM_API_MAX_RETRIES"); raw != "" {
 		if v, err := strconv.Atoi(raw); err == nil && v >= 0 {
@@ -180,6 +203,9 @@ func Load() (*Config, error) {
 		ClarificationMaxQuestionsPerRound: clarificationMaxQuestionsPerRound,
 		ClarificationModels:               clarificationModels,
 		ClarificationArbiterModel:         clarificationArbiterModel,
+
+		MajorityModels:        majorityModels,
+		MajorityChairmanModel: majorityChairmanModel,
 
 		LLMAPIMaxRetries: llmAPIMaxRetries,
 	}, nil

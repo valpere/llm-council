@@ -45,6 +45,24 @@ func main() {
 		},
 	}
 
+	// Majority strategy registration is opt-in: it's only added to the
+	// registry when MAJORITY_MODELS is explicitly set. Existing deployments
+	// without the env var don't get the new council type silently exposed.
+	// The chairman model is optional and falls back to the global default.
+	if len(cfg.MajorityModels) > 0 {
+		majorityChairman := cfg.MajorityChairmanModel
+		if majorityChairman == "" {
+			majorityChairman = cfg.DefaultCouncilChairmanModel
+		}
+		registry["majority"] = council.CouncilType{
+			Name:          "majority",
+			Strategy:      council.Majority,
+			Models:        cfg.MajorityModels,
+			ChairmanModel: majorityChairman,
+			Temperature:   cfg.DefaultCouncilTemperature,
+		}
+	}
+
 	client := openrouter.NewClient(cfg.OpenRouterAPIKey, cfg.LLMBaseURL, 120*time.Second, cfg.LLMAPIMaxRetries, logger)
 	runner := council.NewCouncil(client, registry, logger)
 
