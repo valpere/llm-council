@@ -1,11 +1,14 @@
 ---
 name: apply-dreaming
 description: "Read the latest llm-council dreaming report and apply
-  high-confidence findings to .claude/ memory, agents, context-essentials,
-  and code. Goes through the project's standard /backlog → Tech Lead →
-  /ship → /fix-review workflow for code-touching changes; direct edit for
-  .claude/ tooling changes. Annotates report with [applied YYYY-MM-DD]
-  markers. Usage: /apply-dreaming [week|latest]"
+  high-confidence findings. Routes findings through the project's
+  standard /backlog → Tech Lead → /ship → /fix-review workflow for
+  code-touching changes AND for changes to load-bearing .claude/
+  files (agent prompts, context-essentials). Direct edit only for
+  agent-local memory and tooling scripts. Annotates report with
+  [applied YYYY-MM-DD] markers."
+user-invocable: true
+argument-hint: "[week|latest]"
 ---
 
 # /apply-dreaming (llm-council)
@@ -55,6 +58,20 @@ Read REPORT. For each numbered sub-item, extract:
   - "code change / refactor / fix bug" → `code-change`
   - else → `other`
 
+**Confidence inheritance.** Reports state confidence at the **section
+level** (e.g. `§2 — confidence: high`), not always per item. When a
+sub-item has no explicit `confidence` field, inherit it from the
+enclosing section. Default to `medium` only when neither item nor
+section declares a level.
+
+**Idempotency — skip already-marked items.** If the next non-blank
+line after an item starts with `> [applied …]`, `> [planned …]`,
+`> [skipped …]`, or `> [manual-review-required …]`, skip the item
+silently. The report is appended to (never rewritten) on each pass,
+so re-running `/apply-dreaming` on the same report processes only
+new items. Print a summary line at the start: `2026-W##: M new
+items (N already-processed skipped)`.
+
 ### 3. Show TL;DR + counts
 
 ```
@@ -79,60 +96,64 @@ For `low`: skip silently unless user opted in.
 
 ### 5. Apply per category
 
-#### `update-rules` — context-essentials.md
+**Routing rule.** Two paths only:
+- **Plan-and-gate path** for anything load-bearing on agent or runtime
+  behaviour: `code-change`, `update-rules` (context-essentials),
+  `update-agents` (agent prompts), `add-skill`. These all draft a plan
+  and route through `/backlog → Tech Lead → /ship → /fix-review`.
+- **Direct-edit path** only for non-load-bearing artefacts:
+  `update-memory` (agent-local memory, often gitignored) and
+  `fix-tooling` (`.claude/dreaming/*.sh`, `.claude/hooks/*.sh`,
+  internal helper scripts that don't change agent prompts).
 
-Direct edit on `main` if branch protection allows (it doesn't currently —
-project has protection). So:
+Agent prompts and `context-essentials.md` ARE the runtime for the
+agent workflow — including the Tech Lead. Editing them without a
+gate would let dreaming reports silently steer the very agent that
+should review the change. Always plan-and-gate.
 
-1. Create branch: `git switch -c add-essentials-W##`
-2. Edit `.claude/context-essentials.md`. Cite source via inline comment:
-   `<!-- Refs: .claude/dreaming/reports/2026-W##.md §<id> -->`
-3. Show diff, confirm, commit.
-4. Push + `gh pr create` referencing the report.
+#### `update-rules` / `update-agents` / `add-skill` — plan-and-gate
 
-#### `update-memory` — agent-memory/<agent>/<file>.md
+Same as `code-change` (see below). Draft a plan that cites the
+dreaming finding; route through `/backlog`. Tech Lead reviews the
+proposed change to load-bearing infrastructure before it lands.
 
-These are local-only Claude Code files (often gitignored under
-`.claude/agent-memory/`). Edit directly, no PR needed:
+#### `update-memory` — agent-memory/<agent>/<file>.md (direct)
+
+Agent-local files (often gitignored under `.claude/agent-memory/`):
 
 1. Read target memory file.
 2. Apply suggested changes (rewrite if "stale", append if "missing").
 3. Set `last-verified: <today>` in frontmatter.
-4. No commit needed unless `.claude/agent-memory/` is git-tracked here
+4. Skip commit unless `.claude/agent-memory/` is git-tracked here
    (check `git check-ignore` first).
 
-#### `update-agents` — .claude/agents/*.md
+#### `fix-tooling` — scripts under .claude/ (direct + PR)
 
-These ARE typically tracked. Same as `update-rules`:
+For helper scripts (`dreaming.sh`, hook scripts, etc.) that don't
+embed agent prompts:
 
-1. Create branch.
-2. Edit agent prompt(s).
-3. Show diff, commit, push, PR.
-
-#### `add-skill` — new file under .claude/skills/
-
-1. Create branch.
-2. Scaffold `.claude/skills/<name>/SKILL.md` with frontmatter.
-3. Commit, push, PR.
-
-#### `fix-tooling` — scripts under .claude/
-
-1. Create branch.
+1. Create branch: `git switch -c fix/dreaming-W##-<slug>`.
 2. Edit script.
-3. Smoke-test if possible.
+3. Smoke-test: `bash -n <script>` for syntax; run with sample input
+   if the script has a dry-run mode.
 4. Commit, push, PR.
 
-#### `code-change`
+#### `code-change` — plan-and-gate
 
-Substantive code changes go through the project's standard workflow.
-**Don't edit code directly.** Instead:
+Substantive code changes (or any of the plan-and-gate categories
+above) go through the project's standard workflow. **Don't edit
+directly.** Instead:
 
-1. Create a draft plan referencing the dreaming finding:
+1. Draft a plan file referencing the dreaming finding:
    `.claude/plans/<priority>-dreaming-W##-<slug>.md`
-2. Plan frontmatter: `type`, `priority`, `labels`, `github_issue: null`.
-3. Plan body: cite report §<id>, evidence, suggested change.
-4. Tell user: "Created plan. Run `/backlog` to gate through Tech Lead,
-   then `/ship` for implementation."
+2. Plan frontmatter: `type`, `priority`, `labels`, `github_issue: ""`.
+3. Plan body: cite report §<id>, evidence, suggested change, files
+   to touch, acceptance criteria.
+4. Tell user: "Created plan `<priority>-dreaming-W##-<slug>`. Run
+   `/backlog <slug>` to gate it through Tech Lead — pass the **slug
+   without the priority prefix** so `/backlog` finds the existing
+   plan rather than drafting a fresh one. Then `/ship` for
+   implementation."
 
 #### `other` — manual review
 
