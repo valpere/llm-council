@@ -106,6 +106,19 @@ func run() error {
 			Temperature:   cfg.DefaultCouncilTemperature,
 		},
 	}
+	// Mirror cmd/server's opt-in Majority registration so eval can target
+	// the strategy via -council-type majority when MAJORITY_MODELS is set.
+	// ChairmanModel is NOT defaulted to the global CHAIRMAN_MODEL — see
+	// cmd/server/main.go for the rationale.
+	if len(cfg.MajorityModels) > 0 {
+		registry["majority"] = council.CouncilType{
+			Name:          "majority",
+			Strategy:      council.Majority,
+			Models:        cfg.MajorityModels,
+			ChairmanModel: cfg.MajorityChairmanModel,
+			Temperature:   cfg.DefaultCouncilTemperature,
+		}
+	}
 	if _, ok := registry[*councilType]; !ok {
 		return fmt.Errorf("unknown council type %q (known: %v)", *councilType, knownTypes(registry))
 	}

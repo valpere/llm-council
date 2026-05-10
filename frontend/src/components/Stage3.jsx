@@ -10,7 +10,7 @@ export default function Stage3({ finalResponse, error }) {
     <div className="stage3-hero">
       <div className="stage3-header">
         <span className="stage3-label">Final Answer</span>
-        {finalResponse && (
+        {finalResponse?.model && (
           <span className="stage3-model">
             {finalResponse.model.split('/')[1] || finalResponse.model}
           </span>

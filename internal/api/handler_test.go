@@ -642,6 +642,70 @@ func TestSendMessageStream(t *testing.T) {
 			},
 		},
 		{
+			name:   "Majority strategy emits kind=vote_tally on the wire",
+			body:   `{"content":"q","council_type":"majority"}`,
+			storer: okStorer(),
+			runner: &mockRunner{
+				runFull: func(ctx context.Context, query, ct string, onEvent council.EventFunc) error {
+					onEvent("stage1_complete", []council.StageOneResult{
+						{Label: "Response A", Content: "yes", Model: "openai/gpt-4o-mini"},
+						{Label: "Response B", Content: "yes", Model: "anthropic/claude-haiku-4-5"},
+						{Label: "Response C", Content: "no", Model: "google/gemini-flash-1.5"},
+					})
+					tally := &council.VoteTally{
+						Clusters: []council.VoteCluster{
+							{Members: []string{"Response A", "Response B"}, Representative: "yes", Votes: 2},
+							{Members: []string{"Response C"}, Representative: "no", Votes: 1},
+						},
+						WinnerLabel: "Response A",
+					}
+					onEvent("stage2_complete", council.Stage2CompleteData{
+						Kind:    "vote_tally",
+						Results: []council.StageTwoResult{},
+						Metadata: council.Metadata{
+							CouncilType:       "majority",
+							LabelToModel:      map[string]string{"Response A": "openai/gpt-4o-mini"},
+							AggregateRankings: []council.RankedModel{},
+							ConsensusW:        1.0,
+							VoteTally:         tally,
+						},
+					})
+					onEvent("stage3_complete", council.StageThreeResult{Content: "yes"}) // no LLM call → empty Model
+					return nil
+				},
+			},
+			wantCode: http.StatusOK,
+			checkSSE: func(t *testing.T, body string) {
+				for _, line := range strings.Split(body, "\n") {
+					if !strings.HasPrefix(line, "data: ") {
+						continue
+					}
+					var env struct {
+						Type     string           `json:"type"`
+						Kind     string           `json:"kind"`
+						Metadata council.Metadata `json:"metadata"`
+					}
+					if err := json.Unmarshal([]byte(line[6:]), &env); err != nil || env.Type != "stage2_complete" {
+						continue
+					}
+					if env.Kind != "vote_tally" {
+						t.Errorf("kind: got %q, want %q", env.Kind, "vote_tally")
+					}
+					if env.Metadata.VoteTally == nil {
+						t.Fatalf("metadata.vote_tally: nil; expected populated")
+					}
+					if env.Metadata.VoteTally.WinnerLabel != "Response A" {
+						t.Errorf("winner_label: got %q, want %q", env.Metadata.VoteTally.WinnerLabel, "Response A")
+					}
+					if len(env.Metadata.VoteTally.Clusters) != 2 {
+						t.Errorf("clusters: got %d, want 2", len(env.Metadata.VoteTally.Clusters))
+					}
+					return
+				}
+				t.Errorf("no stage2_complete event found in body: %s", body)
+			},
+		},
+		{
 			name:   "QuorumError emits error event",
 			body:   `{"content":"test","council_type":"standard"}`,
 			storer: okStorer(),

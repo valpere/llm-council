@@ -291,3 +291,56 @@ func BuildRoleChairmanPrompt(query string, results []StageOneResult) []ChatMessa
 		{Role: "user", Content: sb.String()},
 	}
 }
+
+// BuildMajorityPolishPrompt asks the chairman to polish the winning answer
+// from the Majority strategy. The chairman MUST refine prose only — it must
+// not change the substance of the answer the council voted for.
+//
+// Discriminator prefix: "You polish the council's winning answer." — used
+// by tests to classify the call as a polish call vs. a tiebreak call.
+func BuildMajorityPolishPrompt(query string, winner string) []ChatMessage {
+	var sb strings.Builder
+	sb.WriteString("You polish the council's winning answer. ")
+	sb.WriteString("The council of LLMs voted on the question below; the answer with the most votes is given.\n\n")
+	sb.WriteString("Question: ")
+	sb.WriteString(query)
+	sb.WriteString("\n\nWinning answer:\n")
+	sb.WriteString(winner)
+	sb.WriteString("\n\n")
+	sb.WriteString("Polish the winning answer for clarity, grammar, and prose quality. ")
+	sb.WriteString("DO NOT change the substance of the answer. ")
+	sb.WriteString("If the answer is already clear, return it verbatim. ")
+	sb.WriteString("Reply with the polished answer only — no preamble, no commentary.")
+
+	return []ChatMessage{
+		{Role: "user", Content: sb.String()},
+	}
+}
+
+// BuildMajorityTiebreakPrompt asks the chairman to break a tie among the
+// top-voted clusters in the Majority strategy. Each tied cluster's
+// representative content is shown; the chairman picks one as the final answer.
+//
+// Discriminator prefix: "You arbitrate a tie among the council's top answers."
+// — used by tests to classify the call as a tiebreak call.
+func BuildMajorityTiebreakPrompt(query string, tied []VoteCluster) []ChatMessage {
+	var sb strings.Builder
+	sb.WriteString("You arbitrate a tie among the council's top answers. ")
+	sb.WriteString("The council of LLMs voted on the question below; ")
+	fmt.Fprintf(&sb, "%d answers tied for the most votes.\n\n", len(tied))
+	sb.WriteString("Question: ")
+	sb.WriteString(query)
+	sb.WriteString("\n\nTied answers:\n")
+	for i, cl := range tied {
+		fmt.Fprintf(&sb, "\n[Candidate %d] (%d votes):\n", i+1, cl.Votes)
+		sb.WriteString(cl.Representative)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\nPick the answer that best addresses the question. ")
+	sb.WriteString("If you must blend, blend conservatively — prefer one of the candidates over a synthesis. ")
+	sb.WriteString("Reply with the chosen answer only — no preamble, no commentary on the tiebreak process.")
+
+	return []ChatMessage{
+		{Role: "user", Content: sb.String()},
+	}
+}

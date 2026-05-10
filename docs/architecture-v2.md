@@ -153,6 +153,24 @@ default:         return fmt.Errorf("council: strategy %d not implemented", ct.St
 3. **Stage 2** — skipped. A minimal `Stage2CompleteData{Results:[], Metadata:{AggregateRankings:[], ConsensusW:1.0}}` event is emitted for SSE compatibility.
 4. **Stage 3** — `runRoleBasedStage3`: chairman synthesises across all role findings.
 
+#### `Majority` pipeline (2 stages, no LLM Stage 2)
+
+Implemented in `internal/council/majority.go`. Best for factual QA, classification, and math.
+
+1. **Stage 1** — `runStage1` (reused): all council models run concurrently. Anonymous `Response A`/`B`/… labels assigned via `assignLabels` for SSE consistency with PeerReview.
+2. **Quorum check** — `runMajority` resolves `need := ct.QuorumMin; if need == 0 { need = max(3, ⌈N/2⌉+1) }` inline before calling `checkQuorumWith`. Need ≥3 successful answers by default to break ties cleanly.
+3. **Vote tally** — `buildVoteTally`: pure function over Stage 1 results, no LLM call. Clusters answers by **exact-match after normalisation** (lowercase + trim + collapse internal whitespace). Cluster output is sorted by votes descending, then by representative ascending for stable ordering. Emits `Stage2CompleteData{Kind: "vote_tally", Results: [], Metadata: {..., VoteTally: ...}}`.
+4. **Stage 3** — `runMajorityStage3` selects the final answer based on tie state and chairman config:
+
+   | Tie? | Chairman set? | Result |
+   |------|---------------|--------|
+   | No   | No            | Winning cluster's `Representative` emitted verbatim. `StageThreeResult{Model: "", DurationMs: 0}` — empty `Model` is the documented "no LLM call" signal. |
+   | No   | Yes           | Chairman polishes the winner via `BuildMajorityPolishPrompt` (refines prose only, must not change substance). |
+   | Yes  | Yes           | Chairman picks among tied candidates via `BuildMajorityTiebreakPrompt`. |
+   | Yes  | No            | **Loud error** — `runMajority` returns rather than picking arbitrarily. Matches the loud-failure pattern in Stage 0 (PR #204). |
+
+Voting variants beyond exact-match (cluster-by-embedding, Borda count, Tournament/Elo, weighted voting) are explicit follow-ups. Registration is opt-in: the `"majority"` council type is added to the registry only when `MAJORITY_MODELS` is set in the environment.
+
 #### Per-registration model configuration
 
 Every `CouncilType` registration is independent. Two registrations with the same `Strategy` but different `Models` / `ChairmanModel` are valid — e.g. `"factual-majority"` and `"creative-majority"` both use `Strategy: Majority` with different voter pools. Each strategy has its own namespaced env var family (`MAJORITY_MODELS`, `MAJORITY_CHAIRMAN_MODEL`, `DEBATE_MODELS`, etc.) with fall-through to `COUNCIL_MODELS` / `CHAIRMAN_MODEL` when unset; see [`strategies.md`](./strategies.md) for the full table. Plumbing lands with each strategy's implementation PR.
