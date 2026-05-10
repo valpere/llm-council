@@ -48,17 +48,18 @@ func main() {
 	// Majority strategy registration is opt-in: it's only added to the
 	// registry when MAJORITY_MODELS is explicitly set. Existing deployments
 	// without the env var don't get the new council type silently exposed.
-	// The chairman model is optional and falls back to the global default.
+	//
+	// The chairman model is genuinely optional. It is NOT defaulted to the
+	// global CHAIRMAN_MODEL — config.Load() always populates that with a
+	// dev-fallback, so falling back here would make Majority's no-chairman
+	// path (verbatim winner emission, loud-error on tie) unreachable. Users
+	// who want a chairman for tiebreak/polish must set MAJORITY_CHAIRMAN_MODEL.
 	if len(cfg.MajorityModels) > 0 {
-		majorityChairman := cfg.MajorityChairmanModel
-		if majorityChairman == "" {
-			majorityChairman = cfg.DefaultCouncilChairmanModel
-		}
 		registry["majority"] = council.CouncilType{
 			Name:          "majority",
 			Strategy:      council.Majority,
 			Models:        cfg.MajorityModels,
-			ChairmanModel: majorityChairman,
+			ChairmanModel: cfg.MajorityChairmanModel,
 			Temperature:   cfg.DefaultCouncilTemperature,
 		}
 	}

@@ -31,7 +31,10 @@ func (c *Council) runMajority(ctx context.Context, query string, ct CouncilType,
 		n := len(allStage1)
 		need = max(3, (n+1)/2+1)
 	}
-	successful, err := checkQuorumWith(allStage1, need)
+	// checkQuorum honours an explicit non-zero `need`; the default formula
+	// max(2, ⌈N/2⌉+1) only kicks in when need == 0. Since runMajority always
+	// resolves a non-zero need above, checkQuorum applies our threshold verbatim.
+	successful, err := checkQuorum(allStage1, need)
 	if err != nil {
 		return err
 	}
@@ -54,11 +57,26 @@ func (c *Council) runMajority(ctx context.Context, query string, ct CouncilType,
 	// Vote tally — pure function over Stage 1 results; no LLM call.
 	tally := buildVoteTally(successful)
 
+	// ConsensusW for Majority is the *consensus ratio*: winnerVotes / totalVotes.
+	// This is NOT Kendall's W (which is rank-correlation across reviewers in
+	// PeerReview); for vote_tally it's the share of voters who landed on the
+	// winning cluster. 1.0 means unanimous, ~0.5 means a simple plurality with
+	// strong opposition. Consumers like the eval harness can read this on the
+	// Metadata directly without strategy-specific code paths.
+	totalVotes := 0
+	for _, cl := range tally.Clusters {
+		totalVotes += cl.Votes
+	}
+	consensusW := 0.0
+	if totalVotes > 0 && len(tally.Clusters) > 0 {
+		consensusW = float64(tally.Clusters[0].Votes) / float64(totalVotes)
+	}
+
 	metadata := Metadata{
 		CouncilType:       ct.Name,
 		LabelToModel:      labelToModel,
 		AggregateRankings: []RankedModel{}, // not used by Majority
-		ConsensusW:        1.0,             // 1.0 when winner cluster covers all voters; we leave it at 1.0 here
+		ConsensusW:        consensusW,
 		VoteTally:         tally,
 	}
 
@@ -79,23 +97,6 @@ func (c *Council) runMajority(ctx context.Context, query string, ct CouncilType,
 		onEvent("stage3_complete", stage3)
 	}
 	return nil
-}
-
-// checkQuorumWith is a thin wrapper that calls the existing checkQuorum with
-// an explicit need value (zero-valued QuorumMin would otherwise re-derive
-// the formula, which is strategy-agnostic). Strategies whose default formula
-// differs from max(2, ⌈N/2⌉+1) must resolve their own need first.
-func checkQuorumWith(results []StageOneResult, need int) ([]StageOneResult, error) {
-	var successful []StageOneResult
-	for _, r := range results {
-		if r.Error == nil {
-			successful = append(successful, r)
-		}
-	}
-	if len(successful) < need {
-		return nil, &QuorumError{Got: len(successful), Need: need}
-	}
-	return successful, nil
 }
 
 // normaliseAnswer prepares a Stage 1 answer for exact-match clustering:

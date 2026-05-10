@@ -314,6 +314,52 @@ func TestRunMajority_Stage2Kind_IsVoteTally(t *testing.T) {
 	}
 }
 
+func TestRunMajority_ConsensusW_IsRatio(t *testing.T) {
+	// 2-of-3 plurality → consensus_w should be 2/3 ≈ 0.667, NOT 1.0.
+	rec := &majorityRecorder{stage1: map[string]string{
+		"m-a": "yes",
+		"m-b": "yes",
+		"m-c": "no",
+	}}
+	c := majorityCouncil(t, []string{"m-a", "m-b", "m-c"}, "", rec)
+
+	var consensusW float64
+	err := c.RunFull(context.Background(), "q", "test", func(eventType string, data any) {
+		if eventType == "stage2_complete" {
+			if d, ok := data.(Stage2CompleteData); ok {
+				consensusW = d.Metadata.ConsensusW
+			}
+		}
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := 2.0 / 3.0
+	if consensusW < want-0.01 || consensusW > want+0.01 {
+		t.Errorf("ConsensusW: got %.3f, want ~%.3f (winnerVotes/totalVotes for 2-of-3 plurality)", consensusW, want)
+	}
+}
+
+func TestRunMajority_ConsensusW_UnanimousIsOne(t *testing.T) {
+	// Unanimous (all 3 agree) → consensus_w should be 1.0.
+	rec := &majorityRecorder{stage1: map[string]string{
+		"m-a": "yes", "m-b": "yes", "m-c": "yes",
+	}}
+	c := majorityCouncil(t, []string{"m-a", "m-b", "m-c"}, "", rec)
+
+	var consensusW float64
+	_ = c.RunFull(context.Background(), "q", "test", func(eventType string, data any) {
+		if eventType == "stage2_complete" {
+			if d, ok := data.(Stage2CompleteData); ok {
+				consensusW = d.Metadata.ConsensusW
+			}
+		}
+	})
+	if consensusW != 1.0 {
+		t.Errorf("ConsensusW: got %.3f, want 1.0 (unanimous)", consensusW)
+	}
+}
+
 func TestRunMajority_NoLLMStage3_Contract(t *testing.T) {
 	// Plurality, no chairman, no tie → Model="" and DurationMs=0.
 	// This is the documented "no LLM call produced this result" contract.
