@@ -29,6 +29,35 @@ function normaliseStage2Kind(raw) {
   return trimmed || 'peer_ranking';
 }
 
+// mergeRoundIntoMessage appends a per-round event's transcript subset into the
+// message's canonical metadata pointer for that strategy. Single source of
+// truth: msg.metadata.<ptr>.rounds — the terminal stage2_complete overwrites
+// with the canonical state, so this just keeps the live view in sync during
+// streaming.
+//
+// Kind → metadata pointer name:
+//   debate_round → metadata.debate
+//   delphi_round → metadata.delphi
+//
+// A new pointer is created if missing; an unknown kind defaults to "debate"
+// for backward compatibility (the only multi-round kind before this helper
+// existed).
+function mergeRoundIntoMessage(msg, event) {
+  if (!msg.metadata) {
+    msg.metadata = event.metadata ? { ...event.metadata } : {};
+  }
+  const ptrKey = event.kind === 'delphi_round' ? 'delphi' : 'debate';
+  if (!msg.metadata[ptrKey]) {
+    msg.metadata[ptrKey] = { rounds: [], final_round: 0 };
+  }
+  const incoming = event.metadata?.[ptrKey]?.rounds ?? [];
+  msg.metadata[ptrKey].rounds.push(...incoming);
+  msg.metadata[ptrKey].final_round = event.round ?? msg.metadata[ptrKey].rounds.length;
+  // Surface the kind so the dispatcher renders the right view during streaming
+  // (otherwise the view stays at peer_ranking until the terminal event).
+  msg.stage2Kind = normaliseStage2Kind(event.kind);
+}
+
 function App() {
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
@@ -164,25 +193,12 @@ function App() {
       msg.loading.stage1 = false;
     }),
     stage2_start: () => updateLast((msg) => { msg.loading.stage2 = true; }),
-    // Per-round events (currently only from MultiAgentDebate). Single source
-    // of truth: msg.metadata.debate.rounds. Each event APPENDS its round's
-    // revisions to the existing transcript; the terminal stage2_complete
-    // overwrites with the canonical state. No separate `debateRounds` field —
-    // dual state is a drift hazard.
-    stage2_round_complete: (event) => updateLast((msg) => {
-      if (!msg.metadata) {
-        msg.metadata = event.metadata ? { ...event.metadata } : {};
-      }
-      if (!msg.metadata.debate) {
-        msg.metadata.debate = { rounds: [], final_round: 0 };
-      }
-      const incoming = event.metadata?.debate?.rounds ?? [];
-      msg.metadata.debate.rounds.push(...incoming);
-      msg.metadata.debate.final_round = event.round ?? msg.metadata.debate.rounds.length;
-      // Surface the kind so the dispatcher renders DebateView during streaming
-      // (otherwise the view stays at peer_ranking until the terminal event).
-      msg.stage2Kind = normaliseStage2Kind(event.kind);
-    }),
+    // Per-round events from multi-round strategies (MultiAgentDebate, Delphi).
+    // Single source of truth per strategy: msg.metadata.<kind-pointer>.rounds.
+    // Each event APPENDS its round's transcript subset to the running list;
+    // the terminal stage2_complete overwrites with the canonical state. No
+    // separate `debateRounds` field — dual state is a drift hazard.
+    stage2_round_complete: (event) => updateLast((msg) => mergeRoundIntoMessage(msg, event)),
     stage2_complete: (event) => updateLast((msg) => {
       msg.stage2 = event.data;
       // Treat null / undefined / empty / whitespace-only as missing and
